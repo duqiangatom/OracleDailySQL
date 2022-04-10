@@ -1,0 +1,895 @@
+
+
+1.找到os里消耗资源内存大的问题进程pid
+. oraenv设置环境变量
+ps aux —sort -rss按使用内存大小排序
+ps aux - -sort -rss |grep local=no 属于服务器进程，从dbserver 查到server process业务员
+*****sqlplus / as sysdba的话，客户和业务员都在db服务器，sqlplus客户端对应v$session里的process;业务员sever process显示local=yes
+
+2.从v$session v$process中找到db的session(s.paddr=p.addr) where spid=#
+
+3.找到session正在干的活
+sql-hash-value (极端加个address)或者sql-id
+当sql-hash-value=0时，如pre-hash-value
+详情见积累的sql
+
+4.知道客户端进程号xx
+v$session where process like ‘%xx%’;
+process#:thread#进程号:线程号
+port客户端进程的随机进程号
+s.wait_time上次等待
+s.state (waiting)+seconds_in_wait当前的等待
+
+--当前DB的用户session概况
+
+set lines 300
+column username format a15
+column command format a20
+column status format a10
+column WAIT_CLASS format a20
+column sid format 9999
+column serial# format 99999999
+column program format a50
+column clientP format a15
+column serverP format a15
+select
+  substr(s.username,1,18) username,s.status,
+   decode(s.command,
+     0,'No Command',
+     1,'Create Table',
+     2,'Insert',
+     3,'Select',
+     6,'Update',
+     7,'Delete',
+     9,'Create Index',
+     15,'Alter Table',
+     21,'Create View',
+     23,'Validate Index',
+     35,'Alter Database',
+     39,'Create Tablespace',
+     41,'Drop Tablespace',
+     40,'Alter Tablespace',
+     53,'Drop User',
+     62,'Analyze Table',
+     63,'Analyze Index',
+     s.command||': Other') command,s.WAIT_CLASS,
+     s.sid,s.serial#,
+     substr(s.program,1,15) program,s.process clientP,p.spid serverP,
+   s.state,s.EVENT,s.SECONDS_IN_WAIT,s.LOGON_TIME
+from  v$session     s,  v$process     p
+where s.paddr = p.addr and s.type <> 'BACKGROUND'
+order by 1;
+
+--当前等待session都等哪类event最多
+select sid, serial# , type, event ,en.wait_class,count(1) from v$session s, v$event_name en  where s.event#=en.event# and s.status='ACTIVE' and s.type<>'BACKGROUND'and en.wait_class<>'Idle' group by  sid, serial# , type, s.event ,en.wait_class order by count(1) desc;  
+
+--当前干活的用户session
+select SID,SERIAL#,PADDR,PROCESS,TERMINAL,PROGRAM from v$session where type <> 'BACKGROUND' and status='ACTIVE'  ;   
+--and last_call_et>60*60*3  and username is not null and username not in ('SYS','SYSTEM')
+
+--==某个session情况（Linux top 诊断高负载session进程得出spid后）==--
+--查询session当前、前一个执行的SQL：
+
+  SELECT /*+ ORDERED */
+         sql_text
+          FROM v$sqltext a
+         WHERE (a.hash_value, a.address) IN
+               ( SELECT DECODE(sql_hash_value,
+                              0,
+                              prev_hash_value,
+                              sql_hash_value),
+                       DECODE(sql_hash_value, 0, prev_sql_addr, sql_address)
+                  FROM v$session b
+                 WHERE b.paddr =
+                       ( SELECT addr FROM v$process c WHERE c.spid = '&spid'))
+         ORDER BY piece ASC; --os thread id as input
+
+--从AWR(SQL_ID)获得执行计划：
+select * from table(dbms_xplan.diplay_awr('&sql_id');
+
+--1.实例用于工作和等待的时间比率(最近1，2分钟或半分钟)：
+select begin_time,
+       end_time,
+       round((end_time - begin_time) * 60 * 60 * 24, 2) || 's' as Duration,
+       metric_name,
+       round( value, 3 ) value,
+       metric_unit
+  from v$sysmetric
+ where metric_name in ('Database CPU Time Ratio' ,
+                       'Database Wait Time Ratio',
+                       'Disk Sort Per Sec',
+                       'Memory Sorts Ratio',
+                       'Buffer Cache Hit Ratio',
+                       'Physical Reads Per Sec',
+                       'Redo Generated Per Sec',
+                       'Library Cache Hit Ratio',
+                       'Row Cache Hit Ratio',
+                       'Soft Parse Ratio')
+   and INTSIZE_CSEC = ( select max (intsize_csec) from v$sysmetric)
+ order by metric_id desc ;
+
+--1.1 有等待的活动会话or当前有等待的session
+--1) v$session as datasource
+SELECT inst_id, event,state,sid,machine,program,username,p1text,p1,p2text,p2,p3text,p3,blocking_session,seconds_in_wait,wait_time
+  FROM gv$session
+ WHERE state IN ('WAITING' )
+   AND wait_class != 'Idle'
+   and event not like 'PX%';
+
+--Parameter meaning
+select t.name,t.event_id,t.wait_class,t.parameter1, t.parameter2,t.parameter3  from v$event_name t where t.name='&event_name' ;
+
+--2)v$session_wait as datasource
+select wait_class,event, sid, state, wait_time, seconds_in_wait,t.p1text,t.p1, t.p2text, t.p2, t.p3text,t.p3
+  from v$session_wait t
+ where wait_class <> 'Idle'
+ order by wait_class, event, sid;
+ 
+---Step 2: Run full gather stats
+sqlplus '/as sysdba'
+SQL> execute DBMS_STATS.GATHER_DATABASE_STATS
+To monitor the status open another session and verify  as sysdba run the query  below:
+
+select to_char(START_TIME,'yyyymmdd hh24:mi:dd')  as START_TIME ,to_char(LAST_UPDATE_TIME,'yyyymmdd hh24:mi:dd')  as LAST_UPDATE_TIME,sid,serial#,round((sofar/totalwork)*100,2) ||'%' pct,opname, target,round(time_remaining/60, 2)minutes from v$session_longops where round((sofar/totalwork)*100,2) != '100' and totalwork > 0 and sofar > 0;
+
+
+--1.1.1 锁等待信息（以上查询结果是一个树状结构，如果有子节点，则表示有等待发生)  
+
+SELECT /*+ rule */
+ (SELECT '''' || TT.SID || ',' || SS.SERIAL# || ''' (' || SS.MACHINE || ')'
+    FROM V$LOCK TT, V$SESSION SS
+   WHERE TT.BLOCK = 1
+     AND TT.SID = SS.SID
+     AND TT.ID1 = (SELECT T.ID1 FROM V$LOCK T WHERE S.LOCKWAIT = T.KADDR)) AS BLOCKED_BY_SID_SERIAL#,
+ decode(l.LOCKED_MODE,
+        0,
+        'None',
+        1,
+        'Null',
+        2,
+        'Row-S',
+        3,
+        'Row-X',
+        4,
+        'Share',
+        5,
+        'S/Row-X',
+        6,
+        'Exclusive',
+        'Unknown') LockMode,
+ LPAD(' ', DECODE(L.XIDUSN, 0, 3 , 0)) || L.ORACLE_USERNAME USER_NAME,
+ O.OWNER,
+ O.OBJECT_NAME,
+ S.MODULE,
+ S.MACHINE,
+ O.OBJECT_TYPE,
+ S.SID,
+ S.SERIAL#
+  FROM V$LOCKED_OBJECT L, DBA_OBJECTS O, V$SESSION S
+ WHERE L.OBJECT_ID = O.OBJECT_ID
+   AND L.SESSION_ID = S.SID
+ ORDER BY O.OBJECT_ID, XIDUSN DESC ;
+
+--1.1.2 当前锁(XIDUSN,XIDSLOT,XIDSQN是活得锁后的事务槽信息)
+
+SELECT a.inst_id,
+       a.oracle_username,
+       c.sid,
+       c.machine,
+       c.osuser,
+       decode(a.locked_mode,
+              0,
+              'None',
+              1,
+              'Null',
+              2,
+              'Row share',
+              3,
+              'Row Exclusive',
+              4,
+              'Share',
+              5,
+              'Share Row Exclusive',
+              6,
+              'Exclusive') lock_type,
+       b.owner,
+       b.object_name,
+       a.xidusn,
+       a.xidslot,
+       a.xidsqn
+  FROM gv$locked_object a, all_objects b, gv$session c
+ WHERE a.object_id = b.object_id
+   AND a.inst_id = c.inst_id
+   and a.session_id = c.sid;
+
+--1.2 15min内最重要的等待事件
+
+select a.event, sum (a.wait_time + a.time_waited) total_wait_time
+  from v$active_session_history a
+ where a.sample_time between sysdate - 30 / 2880 and sysdate
+ group by a.event
+ order by total_wait_time desc ;
+
+----active_session_history
+
+select inst_id,
+       session_id,
+       module,
+       sql_id,
+       event,
+       blocking_inst_id,
+       blocking_session,
+       p1,
+       count(*)
+  from gv$active_session_history
+ where event in ('row cache lock' , 'enq:
+TX - row lock contention' )
+ group by inst_id,
+          session_id,
+          module,
+          sql_id,
+          event,
+          blocking_inst_id,
+          blocking_session,
+          p1
+having count (*) > 100
+ order by count (*) desc;
+
+
+--1.2.1 15min 内等待最多的用户
+
+  select s.sid,
+         s.username,
+         sum(a.wait_time + a.time_waited) total_wait_time
+    from v$active_session_history a, v$session s
+   where a.sample_time between sysdate - 15/ 60*24 and sysdate
+     and a.session_id = s.sid
+   group by s.sid, s.username
+   order by total_wait_time desc ;
+
+--1.2.2 实例中等待最多的sql
+
+  select a.user_id,
+         d.username,
+         s.sql_text,
+         sum(a.wait_time + a.time_waited) total_wait_time
+    from v$active_session_history a, v$sqlarea s, dba_users d
+   where a.sample_time between sysdate - 15/ 60*24 and sysdate
+     and a.sql_id = s.sql_id
+     and a.user_id = d.user_id
+   group by a.user_id, d.username, s.sql_text
+   order by total_wait_time desc ;
+
+--1.3 最多的等待对象及这些对象在近15分钟内等待事件类型
+
+select o.object_name,
+       o.object_type,
+       a.event,
+       sum(a.wait_time + a.time_waited) total_wait_time
+  from v$active_session_history a, dba_objects o
+ where a.sample_time between sysdate -15/ 60*24 and sysdate
+   and a.current_obj# = o.object_id
+ group by o.object_name, o.object_type, a.event
+ order by total_wait_time;
+
+--2.1实例总等待按等待类的分布百分比（等待次数+等待时间(百分之一秒))
+
+select wait_class,
+       total_waits,
+       --sum_waits,
+       round( 100 * (total_waits / sum_waits), 2 ) pct_tot_waits,
+       round((time_waited / 100), 2 ) time_waited_sec,
+       --round((sum_time / 100), 2) as sum_time_sec,
+       round( 100 * (time_waited / sum_time), 2 ) pct_time
+  from ( select wait_class, total_waits, time_waited
+          from v$system_wait_class
+         where wait_class != 'Idle' ),
+       ( select sum (total_waits) sum_waits, sum(time_waited) sum_time
+          from v$system_wait_class
+         where wait_class != 'Idle' )
+ order by pct_time desc ;
+
+--2.2 各等待事件排行榜
+select event,
+       total_waits,
+       round(time_waited / 100, 2 ) as time_wait_sec,
+       round(average_wait / 100, 2 ) average_wait_sec
+  from v$system_event
+ where event not in ('pmon timer',
+                     'smon timer',
+                     'rdbms ipc reply',
+                     'rdbms ipc message',
+                     'parallel deque wait',
+                     'virtual circuit',
+                     '%SQL*Net%',
+                     'client message',
+                     'NULL event',
+                     '%idle%')
+ order by time_waited desc ;
+
+-- 正在运行的大session执行百分比和预计完成时间
+col sid format 999999 col opname format a30 col target format a20 col pct format a10 set lines 500
+
+  select sid,
+         serial#,
+         round((sofar / totalwork) * 100, 2 ) || '%' pct,
+         opname,
+         target,
+         round(time_remaining / 60, 2 ) minutes
+    from v$session_longops
+   where round((sofar / totalwork) * 100, 2 ) != '100'
+     and totalwork > 0
+     and sofar > 0 ;
+
+--当前所有用户级会话列表(除去系统级)
+
+select inst_id,
+       saddr,
+       paddr,
+       sid,
+       username,
+       status,
+       server,
+       machine,
+       program,
+       logon_time,
+       event,
+       p1,
+       p2
+  from gv$session
+ WHERE nvl(username, 'SYS_BG') <> 'SYS_BG'
+   and status = 'ACTIVE';
+
+SELECT *
+  FROM v$session
+ WHERE nvl(username, 'SYS_BG') <> 'SYS_BG'
+   and program = 'dllhost.exe' --osuser <> 'SYSTEM'
+ ORDER BY status, terminal;
+
+--当前有活动dblink的session
+
+SELECT b.NAME, a.*
+  FROM v$sesstat a, v$statname b
+ WHERE a.sid = 271
+   AND a.statistic# = b.statistic#
+   AND b.NAME LIKE '%dblink%' ;
+
+--长时间session集中的对象：
+
+SELECT target, COUNT (*) FROM V$SESSION_LONGOPS t GROUP BY t.target;
+
+--未执行完的正在执行的操作:
+SELECT * FROM V$SESSION_LONGOPS t WHERE sofar <> totalwork;
+
+--OSSTAT
+select * from v$osstat order by value desc;
+
+--会话的高负载事件：
+SELECT b.NAME, a.VALUE
+  FROM v$sesstat a, v$statname b
+ WHERE a.sid = &sid --sys_context('userenv','sid')
+   AND a.statistic# = b.statistic#
+   AND a.VALUE > 10
+ ORDER BY VALUE DESC;
+
+--全表（索引）扫描：
+SELECT obj.owner,
+       obj.object_name,
+       COUNT(*),
+       ( SELECT round(SUM (seg.bytes) / 1024 / 1024, 2 )
+          FROM dba_segments seg
+         WHERE seg.owner = obj.owner
+           AND seg.segment_name = obj.object_name) objsize_m
+  FROM dba_objects obj, sys.x$bh xbh
+ WHERE obj.object_type IN ('TABLE' , 'INDEX')
+   AND xbh.obj = obj.data_object_id
+   AND bitand(xbh.flag, 524288) > 0
+   AND obj.owner IN ('UNAME' )
+ GROUP BY obj.owner, obj.object_name
+ ORDER BY 3 DESC;
+
+--热点对象(9i after)：
+SELECT *
+  FROM v$segment_statistics
+ WHERE owner = upper( 'helios')
+ ORDER BY VALUE DESC;
+
+--查询一个存储过程是否在运行
+select *
+  from v$db_object_cache
+ where locks > 0
+   and pins > 0
+   and type = 'PROCEDURE'
+
+--某会话正在执行的SQL：
+SELECT sid, sql_text
+  FROM v$session s, v$sql q
+ WHERE sid IN (&sid)
+   AND (q.sql_id = s.sql_id OR q.sql_id = s.prev_sql_id);
+
+--OS thread ID当前活动会话执行的SQL
+SELECT s.sid, q.sql_text, s.machine, s.program, q.OUTLINE_CATEGORY
+  FROM v$session s, v$sql q
+ WHERE nvl(s.username, 'SYS') <> 'SYS'
+   and s.status = 'ACTIVE'
+   AND (q.sql_id = s.sql_id OR q.sql_id = s.prev_sql_id);
+
+SELECT A.SID, A.SERIAL#
+  FROM V$SESSION A, V$PROCESS B
+ WHERE A.PADDR = B.ADDR
+   AND B.SPID = &SPID; --OS thread id as input
+
+--session当前正在等待事件
+SELECT T.EVENT,
+       SUM(DECODE(T.WAIT_TIME, 0 , 1, 0)) CURR,
+       SUM(DECODE(T.WAIT_TIME, 0 , 0, 1)) PREV,
+       COUNT(*) TOTAL
+  FROM V$SESSION_WAIT T
+ WHERE T.SID = &SID
+   AND T.EVENT NOT IN ('rdbms ipc message',
+                       'SQL*Net message from client',
+                       'smon timer',
+                       'pmon timer',
+                       'wakeup time manager')
+ GROUP BY T.EVENT
+HAVING SUM (DECODE(T.WAIT_TIME, 0, 1, 0 )) > 0
+ ORDER BY 2 DESC;
+
+--===Session级别top统计===---
+
+--session自启动以来等待事件统计信息(时间单位1/100s)
+
+SELECT S.USERNAME,
+       S.PROGRAM,
+       S.STATUS,
+       /*SE.EVENT,
+       SE.TOTAL_WAITS,
+       SE.TOTAL_TIMEOUTS,
+       SE.TIME_WAITED,
+       SE.AVERAGE_WAIT*/
+       SE.*
+  FROM V$SESSION S,V$SESSION_EVENT SE 
+ WHERE S.SID = SE.SID
+   AND SE.EVENT NOT LIKE 'SQL*Net%'
+   AND S.STATUS = 'ACTIVE'
+   AND S.USERNAME IS NOT NULL
+ ORDER BY 2 ASC, 6 DESC ;
+
+--查看占用系统io较大的session
+
+SELECT SE.SID,
+       SE.SERIAL#,
+       PR.SPID,
+       SE.USERNAME,
+       SE.STATUS,
+       SE.TERMINAL,
+       SE.PROGRAM,
+       SE.MODULE,
+       SE.SQL_ADDRESS,
+       ST.EVENT,
+       ST.P1TEXT,
+       SI.PHYSICAL_READS,
+       SI.BLOCK_CHANGES
+  FROM V$SESSION SE,V$SESSION_WAIT ST, V$SESS_IO SI, V$PROCESS PR
+ WHERE ST.SID = SE.SID AND ST.SID = SI.SID
+   AND SE.PADDR = PR.ADDR
+   AND SE.SID > 6 AND ST.WAIT_TIME = 0 
+   AND ST.EVENT NOT LIKE '%SQL%'  ORDER BY PHYSICAL_READS  DESC ;
+
+--找出耗cpu较多的session
+
+SELECT A.SID,
+       SPID,
+       STATUS,
+       SUBSTR(A.PROGRAM, 1, 40 ) PROG,
+       A.TERMINAL,
+       OSUSER,
+       ROUND( VALUE / 60 / 100, 4) VALUE_MINS
+  FROM V$SESSION A, V$PROCESS B, V$SESSTAT C
+ WHERE C.STATISTIC# = 12
+   AND C.SID = A.SID
+   AND A.PADDR = B.ADDR
+ ORDER BY VALUE DESC;
+
+--Top 10 by Buffer Gets的SQL(使用hash算法从内存读取，耗cpu)
+
+SELECT *
+  FROM ( SELECT substr(sql_text, 1 , 40) sql,
+               buffer_gets,
+               executions,
+               buffer_gets / executions "Gets/Exec",
+               hash_value,
+               address
+          FROM V$SQLAREA
+         WHERE buffer_gets > 10000
+         ORDER BY buffer_gets DESC)
+ WHERE rownum <= 10 ;
+
+--Top 10 by Physical Reads SQL（磁盘io多)
+
+SELECT *
+  FROM ( SELECT substr(sql_text, 1 , 40) sql,
+               disk_reads,
+               executions,
+               disk_reads / executions "Reads/Exec",
+               hash_value,
+               address
+          FROM V$SQLAREA
+         WHERE disk_reads > 1000
+         ORDER BY disk_reads DESC)
+ WHERE rownum <= 10 ;
+
+--Top 10 by Parse Calls SQL:
+
+SELECT *
+  FROM ( SELECT substr(sql_text, 1 , 40) sql,
+               parse_calls,
+               executions,
+               hash_value,
+               address
+          FROM V$SQLAREA
+         WHERE parse_calls > 1000
+         ORDER BY parse_calls DESC)
+ WHERE rownum <= 10 ;
+
+--Top 10 by Executions SQL:
+
+SELECT *
+  FROM ( SELECT substr(sql_text, 1 , 40) sql,
+               executions,
+               rows_processed,
+               rows_processed / executions "Rows/Exec",
+               hash_value,
+               address
+          FROM V$SQLAREA
+         WHERE executions > 100
+         ORDER BY executions DESC)
+ WHERE rownum <= 10 ;
+
+--抓非绑定变量的SQL
+
+select FORCE_MATCHING_SIGNATURE, count(1)
+  from v$sql
+ where FORCE_MATCHING_SIGNATURE > 0
+   and FORCE_MATCHING_SIGNATURE != EXACT_MATCHING_SIGNATURE
+ group by FORCE_MATCHING_SIGNATURE
+having count(1) > 10
+ order by 2;
+
+Enter value for a: 10
+old   6: having count(1) > &a
+new   6: having count(1) > 10
+
+FORCE_MATCHING_SIGNATURE   COUNT(1)
+------------------------ ----------
+     8.81463386552502E18         12
+
+So We find it!
+
+
+----某两个snapshot中的等待事件信息
+
+SELECT e.event_name event,
+e.total_waits - NVL (b.total_waits, 0) waits,
+DECODE (
+e.total_waits - NVL (b.total_waits, 0),
+0, TO_NUMBER (NULL),
+DECODE (
+e.total_timeouts - NVL (b.total_timeouts, 0),
+0, TO_NUMBER (NULL),
+100
+* (e.total_timeouts - NVL (b.total_timeouts, 0))
+/ (e.total_waits - NVL (b.total_waits, 0))))
+pctto,
+(e.time_waited_micro - NVL (b.time_waited_micro, 0)) / 1000000 time,
+DECODE (
+(e.total_waits - NVL (b.total_waits, 0)),
+0, TO_NUMBER (NULL),
+( (e.time_waited_micro - NVL (b.time_waited_micro, 0)) / 1000)
+/ (e.total_waits - NVL (b.total_waits, 0)))
+avgwt,
+DECODE (e.wait_class, 'Idle', 99, 0) idle
+FROM dba_hist_system_event b, dba_hist_system_event e
+WHERE b.snap_id(+) = &bid
+AND e.snap_id = &eid
+--AND b.dbid(+) = :dbid
+--AND e.dbid = :dbid
+AND b.instance_number(+) = 1
+AND e.instance_number = 1
+AND b.event_id(+) = e.event_id
+AND e.total_waits > NVL (b.total_waits, 0)
+AND e.event_name NOT IN
+('smon timer',
+'pmon timer',
+'dispatcher timer',
+'dispatcher listen timer',
+'rdbms ipc message')
+ORDER BY idle,time DESC,waits DESC,event
+ 
+
+select * from dba_scheduler_jobs; ---查所有job
+select * from dba_scheduler_job_run_details order by 2 desc; --查job曾经运行历史
+select * from dba_scheduler_running_jobs; --查正在运行的job
+--11g查统计信息执行窗口
+select t1.window_name, t1.repeat_interval, t1.duration
+  from dba_scheduler_windows t1, dba_scheduler_wingroup_members t2
+ where t1.window_name = t2.window_name
+   and t2.window_group_name in
+       ( 'MAINTENANCE_WINDOW_GROUP', 'BSLN_MAINTAIN_STATS_SCHED' ); 
+
+select * from dba_jobs_running;
+
+SELECT event#, name , parameter1, parameter2, parameter3, wait_class
+  FROM V$EVENT_NAME
+ where wait_class <> 'Idle'
+ ORDER BY 2 ;
+
+--当前的等待
+
+select a.event, count (*)
+  from gv$session a
+ where /* status='ACTIVE' AND wait_time=0  and*/
+ wait_class <> 'Idle'
+ group by a.event
+ order by 2 desc;
+
+--历史的等待（被sample到了awr repo里,不全)
+select a.event, count (*)
+  from dba_hist_active_sess_history a
+ where /* status='ACTIVE' AND wait_time=0  and*/
+ wait_class <> 'Idle'
+ group by a.event
+ order by 2 desc;
+
+select
+inst_id,session_id,module,sql_id,event,blocking_inst_id,blocking_session,p1,count(*) from gv$active_session_history where event in ('row cache lock','enq:
+TX - row lock contention') group by
+inst_id,session_id,module,sql_id,event,blocking_inst_id,blocking_session,p1
+having count(*) >100 order by count(*) desc;
+
+---Memory里的（1小时）
+
+select a.event, count (*)
+  from gv$active_session_history a
+ where /* status='ACTIVE' AND wait_time=0  and*/
+ wait_class <> 'Idle'
+ group by a.event
+ order by 2 desc;
+
+---Memory里的 + --具体一个session情况
+SELECT inst_id,   event,state,sid,machine,program,username,p1text,p1,p2text,p2,p3text,p3,blocking_session,seconds_in_wait,wait_time
+  FROM gv$session
+ WHERE state IN ('WAITING')
+   AND wait_class != 'Idle'
+   and event not like 'PX%';
+
+select * from v$session_longops where sofar <> totalwork; 
+
+--知道file_id ,block_id查对象名
+select segment_name, tablespace_name
+  from dba_extents e
+ where e.file_id = 1
+   and 135 between e.block_id and (e.block_id + e.blocks - 1);
+
+
+SQL_ADDRESS
+RAW(4 | 8)
+Used with SQL_HASH_VALUE to identify the SQL statement that is currently being executed
+SQL_HASH_VALUE
+NUMBER
+Used with SQL_ADDRESS to identify the SQL statement that is currently being executed
+SQL_ID
+VARCHAR2(13)
+SQL identifier of the SQL statement that is currently being executed
+
+
+--持有library cache pin的session
+
+select w.sid, kglpnmod "LockMode", kglpnreq "ReqMode", spid "OSProcess"
+  from v$session_wait w, x$kglpn p, v$session s, v$process o
+ where p.kglpnuse = s.saddr
+   and kglpnhdl = w.p1raw
+   and w.event like '%library cache pin%'
+   and s.paddr = o.addr;
+
+Disk IO:(session)
+
+select * from (
+SELECT s.sid, s.serial#, s.username, s.program, i.block_changes
+FROM v$session s, v$sess_io i
+WHERE s.sid = i.sid
+and s.sid= &sid
+ORDER BY 5 desc)
+where rownum<10;
+
+REDO:(session)
+select * from (
+select s.sid,sn.name, ss.value, s.username, s.program, s.type, s.module
+from v$sesstat ss, v$statname sn, v$session s
+where ss.statistic# = sn.statistic# and s.sid = ss.sid and sn.name ='redo size' and ss.value > 0 and s.sid=&sid
+order by ss.value desc)
+where rownum<20;
+
+UNDO:(session)
+Use V$SESSION and V$TRANSACTION. The columns USED_UBLK and USED_UREC from V$TRANSACTION contain the usage of UNDO blocks and records. By
+checking UNDO usage from each tranaction, we check REDO usage indirectly. Remember Redo entries record data that you can use to
+reconstruct all changes made to the database, including the undo segments.
+
+//当前正transaction正使用的值
+SELECT s.sid, s.serial#, s.username, s.program, t.used_ublk, t.used_urec
+FROM v$session s, v$transaction t
+WHERE s.saddr = t.ses_addr and s.sid=&sid
+ORDER BY 5 desc, 6 desc;
+
+//本session累计使用的，rollback transaction也不清零
+SELECT a.sid, b.name, a.value
+FROM v$sesstat a, v$statname b
+WHERE a.statistic# = b.statistic# and a.sid=&sid
+AND b.name = 'undo change vector size'
+ORDER BY a.value DESC
+
+
+//Archive Log Generation(daily/hourly)
+
+===Checking archivelog generation on a hourly and daily basis
+
+select trunc(COMPLETION_TIME,'DD') Day, thread#, round(sum(BLOCKS*BLOCK_SIZE)/1048576) MB,count(*) Archives_Generated
+from v$archived_log
+group by trunc(COMPLETION_TIME,'DD'), thread# order by 1;
+
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+
+select trunc(COMPLETION_TIME,'HH') Hour,thread# , round(sum(BLOCKS*BLOCK_SIZE)/1048576) MB,count(*) Archives
+from v$archived_log
+group by trunc(COMPLETION_TIME,'HH'),thread#  order by 1 ;
+
+===Checking the number of Redo Log switches per hour for past 7 days（历史的)
+
+break on Day
+SELECT trunc(first_time, 'DD') Day, trunc(first_time, 'HH') Hour, count(*) total
+FROM v$log_history
+where first_time>sysdate-7
+GROUP BY trunc(first_time, 'DD'), trunc(first_time, 'HH')
+ORDER BY trunc(first_time, 'DD'), trunc(first_time, 'HH');
+
+
+===Cursor 效率 open_cursor + session_cached_cursor问题
+
+col "parameter" format a30 head "Init Parameter"
+col value format 999,999,999,999 Head "Limit"
+col usage head "Max|Usage"
+
+spool efficiency.out
+select
+  'session_cached_cursors'  parameter,
+  lpad(value, 5)  value,
+  decode(value, 0, '  n/a', to_char(100 * used / value, '990') || '%')  usage
+from
+  ( select
+      max(s.value)  used
+    from
+      v$statname  n,
+      v$sesstat  s
+    where
+      n.name = 'session cursor cache count' and
+      s.statistic# = n.statistic#
+  ),
+  ( select
+      value
+    from
+      v$parameter
+    where
+      name = 'session_cached_cursors'
+  )
+union all
+select
+  'open_cursors',
+  lpad(value, 5),
+  to_char(100 * used / value,  '990') || '%'
+from
+  ( select
+      max(sum(s.value))  used
+    from
+      v$statname  n,
+      v$sesstat  s
+    where
+      n.name in ('opened cursors current') and
+      s.statistic# = n.statistic#
+    group by
+      s.sid
+  ),
+  ( select
+      value
+    from
+      v$parameter
+    where
+      name = 'open_cursors'
+  );
+
+--查看表统计信息是否锁定+stale+stale percent
+select stale_stats, stattype_locked from dba_tab_statistics;
+select  (b.inserts+b.updates+b.deletes) / a.num_rows  from dba_tables t, dba_tab_modifications m where a.owner=b.owner and a.table_name=b.table_name;
+dbms_stats.flush_database_monitoring_info会populate这两个表
+
+---------Latest free space sql statement(性能稍弱 ,更准确些)-----------
+
+//Tablespace Uage
+( 自动扩展：maxbytes设置< bytes时，自动取目前datafile的size；不扩展时，maxbytes=0
+dba_data_files , dba_free_space( maxbytes<>0 union maxbytes=0 --自动扩展与否
+注意：maxsize包含2中情况，可扩展时位maxsize，不可扩展时位bytes）
+set lines 400
+select a.tablespace_name,
+round((a.maxbytes / 1024 / 1024 )) "Max M",
+files as "datafile#",
+round((a.bytes / 1024 / 1024 )) "datafile M",
+round(((a.bytes - b.bytes) / 1024 / 1024 )) "used M",
+round(((a.maxbytes - a.bytes + b.bytes) / 1024 / 1024 )) "free M",
+round(((a.bytes - b.bytes) / a.maxbytes) * 100, 2) "percent_used(%)"
+from (select tablespace_name, sum(sumnow) bytes, sum(summax) maxbytes,sum(files) files
+from (select t1.tablespace_name,
+sum(t1.bytes) sumnow,
+sum(t1.maxbytes) summax,
+count(file_id) files
+from dba_data_files t1
+where t1.maxbytes <> 0
+group by t1.tablespace_name
+union all
+select t2.tablespace_name,
+sum(t2.bytes) sumnow,
+sum(t2.bytes) summax,
+count(file_id) files
+from dba_data_files t2
+where t2.maxbytes = 0
+group by t2.tablespace_name)
+group by tablespace_name) a,
+(select tablespace_name, sum(bytes) bytes
+from dba_free_space
+group by tablespace_name) b
+where a.tablespace_name = b.tablespace_name(+)
+order by ((a.bytes - b.bytes) / a.maxbytes) desc;
+
+//Tablespace+Datafile details(.
+column status format a10
+column contents format a10
+select t.tablespace_name,
+       tbs.status,tbs.contents,
+       t.file_id,
+      /* t.file_name, */
+       t.autoextensible,
+ROUND(decode(t.maxbytes,0,t.bytes,t.maxbytes) / 1024 / 1024 )  AS "MAX_MB",
+ROUND(t.bytes / 1024 / 1024 )   AS "DATAFILE_MB"
+from dba_data_files t, dba_tablespaces tbs
+where t.tablespace_name=tbs.tablespace_name order by 1,4;
+
+//Temp usage
+
+select c.tablespace_name,c.bytes/1024/1024 total_mb,
+nvl((c.bytes-d.bytes_used)/1024/1024,c.bytes/1024/1024)  free_mb,
+nvl(d.bytes_used/1024/1024,0) use_mb,
+nvl(to_char(d.bytes_used*100/c.bytes,'99.99'),0) as USE_Per
+from (select tablespace_name,sum(bytes) bytes from dba_temp_files GROUP by tablespace_name) c,
+(select tablespace_name,sum(bytes_used) bytes_used from gv$temp_extent_pool GROUP by tablespace_name)  d
+where c.tablespace_name = d.tablespace_name(+);
+
+//undo Stats:
+
+select status,sum(bytes/1024/1024) from dba_undo_extents where tablespace_name='UNDOTBS1' group by status; 
+STATUS    SUM(BYTES/1024/1024)
+--------- --------------------
+UNEXPIRED               8.0625
+EXPIRED                11.1875
+          ACTIVE                       1
+
+//resize 文件HWM查询（file大小，用户数据大小，最高水位大小）
+select  b.tablespace_name,
+b.file_id,round(b.bytes/1024/1024) as "datafile MB",
+nvl(a.file_hwm_sizeMB,0) as file_HWM_MB, round(nvl(a.used_space,0)/1024/1024) as used_mb
+from
+( SELECT
+            file_id,
+            ceil(MAX(block_id + blocks - 1)*8192/1024/1024) as  file_hwm_sizeMB,
+            sum(BYTES) as used_space
+        FROM
+            dba_extents   
+        GROUP BY
+            file_id) a , dba_data_files b where a.file_id(+)=b.file_id;
