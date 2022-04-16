@@ -54,3 +54,12 @@ TO_CHAR(sql_exec_start,'dd-mon-yyyy hh24:mi:ss') AS sql_exec_start,
 ROUND(elapsed_time/1000000) AS "Elapsed (s)", ROUND(cpu_time /1000000) AS "CPU (s)",
 substr(sql_text,1,30) sql_text FROM gv$sql_monitor where module not like '%emagent%'
 ORDER BY sql_exec_start desc ) WHERE rownum<=20;
+
+
+---Historical SQL Monitor reports:
+select report_id from (SELECT report_id,EXTRACTVALUE(XMLType(report_summary),'/report_repository_summary/sql/@sql_id') sql_id,EXTRACTVALUE(XMLType(report_summary),'/report_repository_summary/sql/@sql_exec_id') sql_exec_id, EXTRACTVALUE(XMLType(report_summary),'/report_repository_summary/sql/@sql_exec_start') sql_exec_start  FROM dba_hist_reports WHERE component_name = 'sqlmonitor') t where t.sql_id='c0ym21ns5twt0';
+
+---To get text from above Report id :
+
+set long 10000000 longchunksize 10000000 pages 0
+SELECT DBMS_AUTO_REPORT.REPORT_REPOSITORY_DETAIL(RID => 1288, TYPE => 'text') FROM dual;
