@@ -1,0 +1,213 @@
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+set linesize 260 pagesize 10000
+set long 10000
+col module for a40;
+col sql_id for a20;
+col LAST_ACTIVE_TIME for a20
+col last_load_time for a20 
+col PLAN_TABLE_OUTPUT for a200
+col instance_number format 9
+col sql_text for a200
+variable sql_id varchar2(64);
+exec :sql_id:='&sql_id';
+variable cursor_number number;
+
+prompt **********************************************************
+prompt                        SQL TEXT
+prompt **********************************************************
+select sql_text
+from (
+  select  distinct sql_text,piece
+  from v$sqltext
+  where sql_id = :sql_id
+  order by piece)
+/
+
+prompt **********************************************************
+prompt                        SQL PARENT CURSOR STAT
+prompt **********************************************************
+set linesize 260 pagesize 10000
+col fetches for 999999999
+col executions for 999999999
+col loads for 9999
+col invalidations for 9999
+col version_count for 9999
+col shared_pool_MB for 9999
+col module for a50
+col SQL_PROFILE for a30
+col SQL_PLAN_BASELINE for a30
+col prog_line for a20
+col first_load_time for a20;
+col last_load_time for a20;
+col last_active_time for a20;
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+select fetches,
+       executions,
+       loads,
+       invalidations,
+       version_count,
+       trunc(SHARABLE_MEM/1024/1024) shared_pool_MB,
+       parse_calls,
+       disk_reads,
+       buffer_gets,
+       ROWS_PROCESSED,
+       elapsed_time/1000 elas_ms,
+       cpu_time/1000 cpu_ms,
+       first_load_time,
+       last_load_time,
+       last_active_time,
+       module,
+       decode(executions, 0, disk_reads, disk_reads / executions) reads_per,
+       decode(executions, 0, buffer_gets, buffer_gets / executions) cr_per,
+       decode(executions, 0, ROWS_PROCESSED, ROWS_PROCESSED / executions) row_per,
+       decode(executions,
+              0,
+              elapsed_time / 1000000,
+              elapsed_time / (executions * 1000)) elas_ms_per,
+       decode(executions,
+              0,
+              cpu_time / 1000000,
+              cpu_time / (executions * 1000)) cpu_ms_per,
+       decode(executions,
+              0,
+              APPLICATION_WAIT_TIME / 1000000,
+              APPLICATION_WAIT_TIME / (executions * 1000)) app_ms_per,
+       decode(executions,
+              0,
+              CONCURRENCY_WAIT_TIME / 1000000,
+              CONCURRENCY_WAIT_TIME / (executions * 1000)) concur_ms_per,
+       decode(executions,
+              0,
+              CLUSTER_WAIT_TIME / 1000000,
+              CLUSTER_WAIT_TIME / (executions * 1000)) clu_ms_per,
+       decode(executions,
+              0,
+              USER_IO_WAIT_TIME / 1000000,
+              USER_IO_WAIT_TIME / (executions * 1000)) IO_ms_per,
+       SQL_PROFILE,
+       SQL_PLAN_BASELINE,
+       PROGRAM_ID||'-'||PROGRAM_LINE# prog_line
+  from v$sqlarea
+ where sql_id=:sql_id;
+
+prompt **********************************************************
+prompt                        SQL CHILD CURSOR STAT
+prompt **********************************************************
+
+SELECT
+    sql_id,
+    child_number,
+    executions,
+    loads,
+    invalidations,
+    plan_hash_value,
+    last_active_time,
+    first_load_time,
+    last_load_time,
+    decode(executions,0,buffer_gets,buffer_gets/executions) exec_buffer,
+    decode(executions,0,elapsed_time/1000,elapsed_time/executions/1000) exec_ela_ms
+    from v$sql
+WHERE
+    sql_id =:sql_id
+ORDER BY
+    last_active_time;
+
+prompt **********************************************************
+prompt                        SQL CURSOR LAST PLAN
+prompt **********************************************************
+
+declare
+begin
+select child_number into :cursor_number from 
+(select child_number from v$sql where sql_id=:sql_id order by last_active_time desc)
+where rownum=1;
+end;
+/
+
+select * from table(dbms_xplan.display_cursor(:sql_id,:cursor_number,'ADVANCED'));
+
+prompt **********************************************************
+prompt                        SQL CURSOR AWR
+prompt **********************************************************
+
+
+select *
+  from (select to_char(begin_interval_time,'yyyy-mm-dd hh24:mi:ss') begin_time, 
+               a.instance_number,
+               module,
+               plan_hash_value,
+               EXECUTIONS_DELTA exec,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      buffer_gets_deltA,
+                      round(BUFFER_GETS_DELTA / EXECUTIONS_DELTA)) per_get,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      ROWS_PROCESSED_DELTA,
+                      round(ROWS_PROCESSED_DELTA / EXECUTIONS_DELTA, 3)) per_rows,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      ELAPSED_TIME_DELTA,
+                      round(ELAPSED_TIME_DELTA / EXECUTIONS_DELTA / 1000,
+                            2)) time_ms,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      DISK_READS_DELTA,
+                      round(DISK_READS_DELTA / EXECUTIONS_DELTA, 2)) per_read
+          from dba_hist_sqlstat a, DBA_HIST_SNAPSHOT b
+         where a.snap_id = b.snap_id
+           and a.instance_number = b.instance_number
+           and a.sql_id = :sql_id 
+         order by 1 desc)
+ where rownum < 50;
+
+prompt **********************************************************
+prompt                        SQL CURSOR ASH 
+prompt **********************************************************
+
+select * from (
+SELECT
+    SQL_PLAN_HASH_VALUE,
+    sql_plan_line_id, 
+    nvl(event,'ON CPU'),
+    COUNT(*)
+FROM
+    v$active_session_history
+WHERE
+    sql_id = :sql_id 
+    AND sample_time > SYSDATE-30/1440
+GROUP BY
+    SQL_PLAN_HASH_VALUE,sql_plan_line_id,nvl(event,'ON CPU')
+ORDER BY
+    count(*) DESC)
+where rownum<=20;
+
+prompt **********************************************************
+prompt                        SQL CURSOR MONITOR
+prompt **********************************************************
+
+SET LONG 1000000
+SET LONGCHUNKSIZE 1000000
+SET LINESIZE 1000
+SET PAGESIZE 0
+SET TRIM ON
+SET TRIMSPOOL ON
+SET ECHO OFF
+SET FEEDBACK OFF
+SELECT DBMS_SQLTUNE.REPORT_SQL_MONITOR(
+  SQL_ID       => :sql_id,
+  TYPE         => 'TEXT',
+  REPORT_LEVEL => 'ALL') AS REPORT
+FROM dual;
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,50 @@
+set linesize 260 pagesize 10000
+column sess       format a21 heading "SESSION"
+column program    format a18
+column clnt_pid   format a8
+column machine    format a25
+column username   format a12
+column osuser     format a13
+column event      format a32
+column waitsec    format 999999
+column start_time format a18
+column sql_id     format a15
+column clnt_user  format a10
+column svr_ospid  format a10
+
+ALTER SESSION SET NLS_DATE_FORMAT = 'yyyy/mm/dd hh24:mi:ss';
+
+set feedback off
+set echo off
+
+set head off
+select chr(9) from dual;
+select 'Waiting Transactions'||chr(10)||'====================' from dual;
+set head on
+select /*+ rule */
+       lpad(nvl(s.username,' '),8)||'('||s.sid||','||s.serial#||')' as sess,
+       p.spid as svr_ospid,
+       nvl(osuser,' ') as clnt_user,
+       s.process as clnt_pid,
+       substr((case instr(s.PROGRAM, '@')
+                 when 0 then
+                   s.program
+                 else
+                   case instr(s.PROGRAM, '(TNS V1-V3)')
+                     when 0 then
+                       substr(s.program, 1, instr(s.PROGRAM, '@') - 1) || substr(s.program, instr(s.PROGRAM, '(') - 1)
+                     else
+                       substr(s.program, 1, instr(s.PROGRAM, '@') - 1)
+                   end
+                                                         end),
+              1, 18) as program,
+       (case 
+            when length(s.MACHINE) > 8 then substr(s.machine,1,8)||'~'
+            else s.machine
+        end
+       ) || '('||nvl(s.client_info, 'Unknown IP')||')' as machine, s.sql_id,
+       substr(s.event, 1, 32) as event,
+       s.seconds_in_wait      as waitsec
+  from v$transaction t,v$session s,v$process p
+ where t.ses_addr=s.saddr and s.paddr=p.addr
+ order by s.seconds_in_wait, s.program, s.machine;

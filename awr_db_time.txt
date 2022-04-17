@@ -1,0 +1,28 @@
+set linesize 220 pagesize 1000
+col begin_interval_time for a30
+col end_interval_time for a30
+col stat_name for a40
+WITH sysstat
+        AS (
+SELECT ss.instance_number inst_id,
+       sn.begin_interval_time begin_interval_time,
+       sn.end_interval_time end_interval_time,
+       ss.stat_name stat_name,
+       ss.VALUE e_value,
+       LAG(ss.VALUE) OVER(partition by ss.instance_number ORDER BY ss.snap_id) b_value
+  FROM dba_hist_sys_time_model ss, dba_hist_snapshot sn
+ WHERE sn.begin_interval_time >= SYSDATE - &date
+   AND ss.snap_id = sn.snap_id
+   AND ss.dbid = sn.dbid
+   AND ss.instance_number = sn.instance_number
+   AND ss.dbid = (SELECT dbid FROM v$database)
+   and ss.stat_name = 'DB time'
+   and ss.instance_number in (select instance_number from v$instance)
+              )
+select inst_id,
+       begin_interval_time,
+       end_interval_time,
+       stat_name,
+       round((e_value - b_value)/1000/1000/60) value_min
+  from sysstat 
+ order by 2 desc, 3 desc;

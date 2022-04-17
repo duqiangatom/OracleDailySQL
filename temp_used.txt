@@ -1,0 +1,44 @@
+查询temp表空间使用率：
+select  df.tablespace_name "Tablespace",
+       df.totalspace "Total(MB)",
+       nvl(FS.UsedSpace, 0)  "Used(MB)",
+       (df.totalspace - nvl(FS.UsedSpace, 0)) "Free(MB)",
+       round(100 * (1-( nvl(fs.UsedSpace, 0) / df.totalspace)), 2) "Pct. Free(%)"
+FROM  (SELECT tablespace_name, round(SUM(bytes) / 1048576) TotalSpace
+        FROM   dba_TEMP_files
+        GROUP  BY tablespace_name) df,
+       (SELECT tablespace_name, ROUND(SUM(bytes_used) / 1024 / 1024)  UsedSpace
+        FROM   gV$temp_extent_pool
+        GROUP  BY tablespace_name) fs  WHERE  df.tablespace_name = fs.tablespace_name(+)
+
+查询实时使用temp表空间的sql_id和sid：
+set linesize 260 pagesize 1000
+col machine for a40
+col program for a40
+SELECT se.username,
+       sid,
+       serial#,
+       se.sql_id
+       machine,
+       program,
+       tablespace,
+       segtype,
+       (su.BLOCKS*8/1024/1024) GB
+  FROM v$session se, v$sort_usage su
+ WHERE se.saddr = su.session_addr
+ order by su.BLOCKS desc;
+
+/*需要注意的是这里查询sql_id要用v$session视图的sql_id，而不要用v$sort_usage视图的sql_id，v$sort_usage视图里面的sql_id是不准确的*/
+
+查询历史的temp表空间的使用的SQL_ID
+select a.SQL_ID,
+       a.SAMPLE_TIME,
+       a.program,
+       sum(trunc(a.TEMP_SPACE_ALLOCATED / 1024 / 1024)) MB
+  from v$active_session_history a
+ where TEMP_SPACE_ALLOCATED is not null 
+ and sample_time between
+ to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+ to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+ group by a.sql_id,a.SAMPLE_TIME,a.PROGRAM
+ order by 2 asc,4 desc;

@@ -1,0 +1,10 @@
+declare
+    v_address_hash varchar2(128);
+begin
+    select address||', '||hash_value into v_address_hash
+    from v$sqlarea
+    where sql_id = '&SQL_ID';
+sys.dbms_shared_pool.purge(v_address_hash, 'C');
+end;
+/
+ 

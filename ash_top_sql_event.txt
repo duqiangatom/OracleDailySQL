@@ -1,0 +1,159 @@
+一、ASH TOP SQL_ID+EVENT和PLAN_HASH_VALUE+EVENT分组
+	▪	求取ASH的top sql+event：
+set linesize 220 pagesize 10000
+col event for a50
+col sql_id for a15
+col module for a40
+SELECT *
+  FROM (SELECT sql_id,nvl(event, 'ON CPU') event,COUNT(*)
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440
+         group BY sql_id,event
+         ORDER BY 3 DESC)
+ WHERE ROWNUM <= 20;
+
+set linesize 220 pagesize 10000
+col event for a50
+col sql_id for a15
+col module for a40
+with x as 
+(SELECT /*+MATERIALIZE*/ *
+  FROM (SELECT sql_id, SQL_CHILD_NUMBER,nvl(event, 'ON CPU') event,COUNT(*) cnt
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440
+         group BY sql_id, SQL_CHILD_NUMBER, event
+         ORDER BY COUNT(*) DESC) 
+ WHERE ROWNUM <= 20)
+SELECT
+    x.sql_id,
+    x.sql_child_number,
+    x.cnt,
+    x.event,
+    y.module,
+    y.executions,
+    y.buffer_gets,
+    round(decode(executions,0,y.buffer_gets,y.buffer_gets / y.executions)) exec_buffer_gets,
+    round(decode(executions,0,y.ELAPSED_TIME,y.ELAPSED_TIME/(y.executions*1000)),2) exec_elas_ms
+FROM
+         x
+    INNER JOIN v$sql y ON x.sql_id = y.sql_id
+                          AND x.sql_child_number = y.child_number
+order by x.cnt desc;
+
+	▪	求取ASH的top event+sql plan hash value：
+set linesize 220 pagesize 10000
+col event for a50
+col sql_id for a15
+col module for a40
+SELECT *
+  FROM (SELECT sql_plan_hash_value,nvl(event, 'ON CPU') event,COUNT(*)
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440
+         group BY sql_plan_hash_value,event
+         ORDER BY 3 DESC)
+ WHERE ROWNUM <= 20;
+
+set linesize 220 pagesize 10000
+col event for a50
+col sql_id for a15
+col module for a60
+with x as 
+(SELECT /*+MATERIALIZE*/*
+  FROM (SELECT sql_plan_hash_value,nvl(event, 'ON CPU') event,COUNT(*) cnt
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440
+         group BY sql_plan_hash_value, event
+         ORDER BY COUNT(*) DESC) 
+ WHERE ROWNUM <= 20)
+select * from (
+SELECT
+    x.sql_plan_hash_value,
+    x.event,
+    max(x.cnt) cnt,
+    max(module) module,
+    max(y.executions) executions,
+    max(round(decode(executions,0,y.buffer_gets,y.buffer_gets / y.executions))) exec_buffer_gets,
+    max(round(decode(executions,0,y.ELAPSED_TIME,y.ELAPSED_TIME/(y.executions*1000)),2)) exec_elas_ms
+FROM
+         x
+    left JOIN v$sqlarea y ON x.sql_plan_hash_value = y.plan_hash_value
+group by x.sql_plan_hash_value,x.event
+order by cnt desc)
+where rownum<=20;
+
+二、ASH TOP SQL_ID+PLAN_HASH_VALUE分组
+求取ASH的top sql：
+set linesize 220 pagesize 10000
+col sql_id for a50
+col module for a40
+SELECT *
+  FROM (SELECT sql_id, COUNT(*) cnt
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440
+         group BY sql_id
+         ORDER BY COUNT(*) DESC)
+ WHERE ROWNUM <= 20;
+
+set linesize 220 pagesize 10000
+col sql_id for a50
+col module for a40
+with x as 
+(SELECT /*+MATERIALIZE*/ *
+  FROM (SELECT sql_id, SQL_CHILD_NUMBER,COUNT(*) cnt
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440 
+         group BY sql_id, SQL_CHILD_NUMBER
+         ORDER BY COUNT(*) DESC) 
+ WHERE ROWNUM <= 20)
+SELECT
+    x.sql_id,
+    x.sql_child_number,
+    x.cnt,
+    y.module,
+    y.executions,
+    y.buffer_gets,
+    round(decode(executions,0,y.buffer_gets,y.buffer_gets / y.executions)) exec_buffer_gets,
+    round(decode(executions,0,y.ELAPSED_TIME,y.ELAPSED_TIME/(y.executions*1000)),2) exec_elas_ms
+FROM
+         x
+    INNER JOIN v$sql y ON x.sql_id = y.sql_id
+                          AND x.sql_child_number = y.child_number
+order by x.cnt desc;
+
+求取ash的top sql plan hash value
+set linesize 220 pagesize 10000
+col module for a40
+SELECT *
+  FROM (SELECT sql_plan_hash_value, COUNT(*) cnt
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440 
+         group BY sql_plan_hash_value
+         ORDER BY COUNT(*) DESC)
+ WHERE ROWNUM <= 20;
+
+set linesize 220 pagesize 10000
+col module for a60
+with x as 
+(SELECT /*+MATERIALIZE*/*
+  FROM (SELECT sql_plan_hash_value,COUNT(*) cnt
+          FROM v$active_session_history
+         WHERE sample_time > SYSDATE - 60 / 1440
+         group BY sql_plan_hash_value
+         ORDER BY COUNT(*) DESC) 
+ WHERE ROWNUM <= 20)
+select * from (
+SELECT
+    x.sql_plan_hash_value,
+    max(x.cnt) cnt,
+    max(module) module,
+    max(y.executions) executions,
+    max(round(decode(executions,0,y.buffer_gets,y.buffer_gets / y.executions))) exec_buffer_gets,
+    max(round(decode(executions,0,y.ELAPSED_TIME,y.ELAPSED_TIME/(y.executions*1000)),2)) exec_elas_ms
+FROM
+         x
+    left JOIN v$sqlarea y ON x.sql_plan_hash_value = y.plan_hash_value
+group by x.sql_plan_hash_value
+order by cnt desc)
+where rownum<=20;
+
+

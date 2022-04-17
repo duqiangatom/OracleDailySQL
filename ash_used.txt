@@ -1,0 +1,668 @@
+1、sample_time分组活动会话趋势
+分钟级别的活动会话分布
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+set linesize 260 pagesize 1000
+select trunc(sample_time,'mi'),count(*)
+          from gv$active_session_history 
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and inst_id in (select instance_number from v$instance) 
+         group by trunc(sample_time,'mi')
+         order by trunc(sample_time,'mi');
+
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+set linesize 260 pagesize 1000
+select trunc(sample_time,'mi'),count(*)
+          from dba_hist_active_sess_history
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and instance_number in (select instance_number from v$instance) 
+         group by trunc(sample_time,'mi')
+         order by trunc(sample_time,'mi');
+
+秒级别的活动会话分布
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+set linesize 260 pagesize 1000
+select sample_time,sample_id,count(*)
+          from gv$active_session_history 
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and inst_id in (select instance_number from v$instance) 
+         group by sample_time,sample_id
+         order by sample_time,sample_id;
+
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+set linesize 260 pagesize 1000
+select sample_time,sample_id,count(*)
+          from dba_hist_active_sess_history 
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and instance_number in (select instance_number from v$instance) 
+         group by sample_time,sample_id
+         order by sample_time,sample_id;
+
+2.采样某瞬时SAMPLE_TIME或者某时间段内SAMPLE_TIME
+
+2.1.采样某瞬时SAMPLE_TIME的SQL_ID||SQL_PLAN_HASH_VALUE、EVENT的活动会话分组
+
+某个sample_time时间点查看该sample_time时间点的等待事件和相关SQL_ID、p1、p2、p3等参数
+set linesize 260 pagesize 10000
+col param_t for a60
+select sql_id, nvl(event,'on cpu') event,count(*),p1||'_'||p2||'_'||p3 param_t
+  from v$active_session_history a
+ where sample_id=&sample_id
+ group by sql_id, nvl(event,'on cpu'),p1||'_'||p2||'_'||p3
+ order by count(*) desc;
+
+某个sample_time时间点查看该sample_time时间点的等待事件和SQL_PLAN_HASH_VALUE、p1、p2、p3等参数
+set linesize 260 pagesize 10000
+col param_t for a60
+select SQL_PLAN_HASH_VALUE, nvl(event,'on cpu') event, count(*),p1||'_'||p2||'_'||p3 param_t
+  from v$active_session_history a
+ where sample_id=&sample_id
+ group by SQL_PLAN_HASH_VALUE, nvl(event,'on cpu'),p1||'_'||p2||'_'||p3
+ order by count(*) desc;
+
+2.2.采样某时间段内SAMPLE_TIME的SQL_ID||SQL_PLAN_HASH_VALUE、EVENT的活动会话的分组
+
+某时间段内等待事件和相关SQL_ID、p1、p2、p3等参数
+set linesize 260 pagesize 10000
+col event for a40
+col param_t for a80
+select *
+      from (select sql_id, nvl(event,'ON CPU') event, count(*),p1||'_'||p2||'_'||p3 param_t
+              from gv$active_session_history
+             where sample_time between
+                   to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+                   to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and inst_id in (select instance_number from v$instance)
+               and event like '&event_name%'
+             group by sql_id, event,p1||'_'||p2||'_'||p3
+             order by count(*) desc)
+    where rownum <=10;
+
+set linesize 260 pagesize 10000
+col event for a40
+col param_t for a80
+select *
+      from (select sql_id, nvl(event,'ON CPU') event, count(*),p1||'_'||p2||'_'||p3 param_t
+              from dba_hist_active_sess_history
+             where sample_time between
+                   to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+                   to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and instance_number in (select instance_number from v$instance)
+               and event like '&event_name%'
+             group by sql_id, event,p1||'_'||p2||'_'||p3
+             order by count(*) desc)
+    where rownum <=10;
+
+某时间段内的等待事件和相关SQL_PLAN_HASH_VALUE、p1、p2、p3等参数
+set linesize 260 pagesize 10000
+col event for a40
+col param_t for a80
+select *
+      from (select SQL_PLAN_HASH_VALUE, nvl(event,'ON CPU') event, count(*),p1||'_'||p2||'_'||p3 param_t
+              from gv$active_session_history
+             where sample_time between
+                   to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+                   to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and inst_id in (select instance_number from v$instance)
+               and event like '&event_name%'
+             group by SQL_PLAN_HASH_VALUE, event,p1||'_'||p2||'_'||p3
+             order by count(*) desc)
+    where rownum <=10;
+
+set linesize 260 pagesize 10000
+col event for a40
+col param_t for a80
+select *
+      from (select SQL_PLAN_HASH_VALUE, nvl(event,'ON CPU') event, count(*),p1||'_'||p2||'_'||p3 param_t
+              from dba_hist_active_sess_history
+             where sample_time between
+                   to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+                   to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and instance_number in (select instance_number from v$instance)
+               and event like '&event_name%'
+             group by SQL_PLAN_HASH_VALUE, event,p1||'_'||p2||'_'||p3
+             order by count(*) desc)
+    where rownum <=10;
+
+某时间段内的等待事件和相关SQL_ID、rowid_obj等参数
+set linesize 260 pagesize 10000
+col event for a40
+col rowid_obj for a80
+select *
+      from (select sql_id, nvl(event,'ON CPU') event, count(*),CURRENT_OBJ#||'_'||CURRENT_FILE#||'_'||CURRENT_BLOCK#||'_'||CURRENT_ROW# rowid_obj
+              from gv$active_session_history
+             where sample_time between
+                   to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+                   to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and inst_id in (select instance_number from v$instance)
+               and event like '&event_name%'
+             group by sql_id, event,CURRENT_OBJ#||'_'||CURRENT_FILE#||'_'||CURRENT_BLOCK#||'_'||CURRENT_ROW#
+             order by count(*) desc)
+    where rownum <=10;
+
+set linesize 260 pagesize 10000
+col event for a40
+col rowid_obj for a80
+select *
+      from (select sql_id, nvl(event,'ON CPU') event, count(*),CURRENT_OBJ#||'_'||CURRENT_FILE#||'_'||CURRENT_BLOCK#||'_'||CURRENT_ROW# rowid_obj
+              from dba_hist_active_sess_history
+             where sample_time between
+                   to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+                   to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and instance_number in (select instance_number from v$instance)
+               and event like '&event_name%'
+             group by sql_id, event,CURRENT_OBJ#||'_'||CURRENT_FILE#||'_'||CURRENT_BLOCK#||'_'||CURRENT_ROW#
+             order by count(*) desc)
+    where rownum <=10;
+
+
+3、获取某时间段内的top session_id+session_serial#和堵塞其他会话的top session_id+session_serial#
+
+获取某时间段内的top session_id+session_serial#+event+sql_id
+set linesize 260 pagesize 10000
+col nvl(event,'ON CPU') for a40
+select *
+      from (select session_id,session_serial#,sql_id,nvl(event,'ON CPU'),count(*)
+              from gv$active_session_history
+             where sample_time between
+                   to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+                   to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+               and inst_id in (select instance_number from v$instance)
+             group by session_id,session_serial#,sql_id,nvl(event,'ON CPU')
+             order by count(*) desc)
+    where rownum <=10;
+
+获取某时间段内的某等待事件的BLOCKING_INST_ID、BLOCKING_SESSION、BLOCKING_SESSION_SERIAL#分组
+select BLOCKING_SESSION_STATUS,
+       BLOCKING_SESSION,
+       BLOCKING_SESSION_SERIAL#,
+       BLOCKING_INST_ID,
+       count(*)
+  from v$active_session_history a
+ where event like upper('&event%')
+       and sample_time between
+       to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+       to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+group by BLOCKING_SESSION_STATUS, BLOCKING_SESSION ,BLOCKING_SESSION_SERIAL# ,BLOCKING_INST_ID
+order by count(*) desc;
+
+4、查看一段时间内的活动会话的TOP N等待事件回溯
+
+v$active_session_history视图挖掘:
+
+rac环境查询两个实例
+set linesize 260 pagesize 10000
+col INST_ID for 9
+col sample_time for a30
+col sample_id for 9999999999
+col event for a40
+col rn for 99
+with ash_tab as (select *
+          from gv$active_session_history 
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss'))
+select *
+  from (select INST_ID,
+               sample_time,
+               sample_id,
+               nvl(event,'on cpu') event,
+               count(*) cnt,
+               ROW_NUMBER() OVER(PARTITION BY INST_ID,sample_time ORDER BY count(*) desc) rn
+          from ash_tab
+         group by INST_ID, sample_time,sample_id,nvl(event,'on cpu')
+         )
+ where rn < 10
+ and cnt>&cnt 
+order by sample_time asc,rn asc;
+
+rac环境查询一个实例
+set linesize 260 pagesize 10000
+col INST_ID for 9
+col sample_time for a30
+col sample_id for 9999999999
+col event for a40
+col rn for 99
+with ash_tab as (select *
+          from gv$active_session_history 
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss'))
+select *
+  from (select sample_time,
+               sample_id,
+               nvl(event,'on cpu') event,
+               count(*) cnt,
+               ROW_NUMBER() OVER(PARTITION BY sample_time ORDER BY count(*) desc) rn
+          from ash_tab
+         where inst_id in (select instance_number from v$instance)
+         group by sample_time,sample_id,nvl(event,'on cpu')
+         )
+ where rn < 10
+ and cnt>&cnt
+ order by sample_time asc,rn asc;
+
+dba_hist_active_sess_history视图去挖掘信息：
+
+rac环境查询两个实例
+set linesize 260 pagesize 10000
+col INSTANCE_NUMBER for 9
+col sample_time for a30
+col sample_id for 9999999999
+col event for a40
+col rn for 99
+with ash_tab as (select *
+          from dba_hist_active_sess_history
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss'))
+select *
+  from (select INSTANCE_NUMBER,
+               sample_time,
+               sample_id,
+               nvl(event,'on cpu') event,
+               count(*) cnt,
+               ROW_NUMBER() OVER(PARTITION BY INSTANCE_NUMBER,sample_time ORDER BY count(*) desc) rn
+          from ash_tab
+         group by INSTANCE_NUMBER, sample_time,sample_id,nvl(event,'on cpu')
+         )
+ where rn < 10 
+ and cnt>&cnt 
+order by sample_time asc,rn asc;
+
+rac环境查询一个实例
+set linesize 260 pagesize 10000
+col INSTANCE_NUMBER for 9
+col sample_time for a30
+col sample_id for 9999999999
+col event for a40
+col rn for 99
+with ash_tab as (select *
+          from dba_hist_active_sess_history
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss'))
+select *
+  from (select INSTANCE_NUMBER,
+               sample_time,
+               sample_id,
+               nvl(event,'on cpu') event,
+               count(*) cnt,
+               ROW_NUMBER() OVER(PARTITION BY INSTANCE_NUMBER,sample_time ORDER BY count(*) desc) rn
+          from ash_tab
+         where instance_number in (select instance_number from v$instance)
+         group by INSTANCE_NUMBER, sample_time,sample_id,nvl(event,'on cpu')
+         )
+ where rn < 10 
+ and cnt>&cnt 
+order by sample_time asc,rn asc;
+
+5 重要：获取特定时间段root blocker信息
+通过V$ACTIVE_SESSION_HISTORY只获取单个实例的堵塞关系
+alter session set nls_date_format='yyyymmddhh24miss';
+set linesize 260 pagesize 1000
+set linesize 260 pagesize 1000
+col sample_time for a15
+col final_program for a40
+col final_sql for a15
+col FINAL_EVT for a40
+col WAIT_LVL_EVENT for a40
+col FINAL_HOLDER for a15
+col sql_opname for a15
+col inst_id for 99
+
+with ash_tab as 
+(
+select *
+  from gv$active_session_history
+ where  sample_time between
+        to_date('&date1', 'yyyymmddhh24miss') and
+        to_date('&date2', 'yyyymmddhh24miss')
+        and inst_id in (select instance_number from v$instance)
+)
+select to_char(SAMPLE_TIME,'yyyymmddhh24miss') sample_time,
+       FINAL_INST||'_'||FINAL_SID||'_'||FINAL_SID_SERIAL# FINAL_HOLDER,
+       FINAL_PROGRAM,
+       FINAL_SQL,
+       SQL_OPNAME,
+       nvl(FINAL_EVT, 'ON CPU') as FINAL_EVT,
+       INST_ID,
+       max(WAIT_LVL_EVENT) as WAIT_LVL_EVENT,
+       count(*)
+  from (select INST_ID,
+               SESSION_ID,
+               SAMPLE_TIME,
+               sys_connect_by_path(SESSION_ID, ',') CHAIN,
+               connect_by_root(INST_ID) FINAL_INST,
+               connect_by_root(SESSION_ID) FINAL_SID,
+               connect_by_root(session_serial#) FINAL_SID_SERIAL#,
+               connect_by_root(PROGRAM) as FINAL_PROGRAM,
+               connect_by_root(sql_id) FINAL_SQL,
+               connect_by_root(event) FINAL_EVT,
+               connect_by_root(SQL_OPNAME) SQL_OPNAME,
+               event,
+               case
+                 when level>=2 then
+                  event
+               end as WAIT_LVL_EVENT
+          from ash_tab t
+         start with BLOCKING_SESSION is null
+        connect by prior SESSION_ID = BLOCKING_SESSION
+               and prior INST_ID = BLOCKING_INST_ID 
+               and prior session_serial# = blocking_session_serial#
+               and sample_id = prior sample_id)
+ group by SAMPLE_TIME,FINAL_INST,FINAL_SID, FINAL_SID_SERIAL#,FINAL_EVT,FINAL_PROGRAM, FINAL_SQL,INST_ID,SQL_OPNAME
+having count(*) >1 
+ order by SAMPLE_TIME,count(*) desc;
+
+通过DBA_HIST_ACTIVE_SESS_HISTORY获取单个实例的堵塞关系
+alter session set nls_date_format='yyyymmddhh24miss';
+set linesize 260 pagesize 1000
+col sample_time for a15
+col final_program for a40
+col final_sql for a15
+col FINAL_EVT for a40
+col WAIT_LVL_EVENT for a40
+col FINAL_HOLDER for a15
+col sql_opname for a15
+col inst_id for 99
+
+with ash_tab as 
+(
+select *
+  from dba_hist_active_sess_history
+ where  sample_time between
+        to_date('&date1', 'yyyymmddhh24miss') and
+        to_date('&date2', 'yyyymmddhh24miss')
+        and instance_number in (select instance_number from v$instance)
+)
+select to_char(SAMPLE_TIME,'yyyymmddhh24miss') sample_time,
+       FINAL_INST||'_'||FINAL_SID||'_'||FINAL_SID_SERIAL# FINAL_HOLDER,
+       FINAL_PROGRAM,
+       FINAL_SQL,
+       SQL_OPNAME,
+       nvl(FINAL_EVT, 'ON CPU') as FINAL_EVT,
+       instance_number inst_id,
+       max(WAIT_LVL_EVENT) as WAIT_LVL_EVENT,
+       count(*)
+  from (select instance_number,
+               SESSION_ID,
+               SAMPLE_TIME,
+               sys_connect_by_path(SESSION_ID, ',') CHAIN,
+               connect_by_root(INSTANCE_NUMBER) FINAL_INST,
+               connect_by_root(SESSION_ID) FINAL_SID,
+               connect_by_root(session_serial#) FINAL_SID_SERIAL#,
+               connect_by_root(PROGRAM) as FINAL_PROGRAM,
+               connect_by_root(sql_Id) FINAL_SQL,
+               connect_by_root(event) FINAL_EVT,
+               connect_by_root(SQL_OPNAME) SQL_OPNAME,
+               event,
+               case
+                 when level>=2 then
+                  event
+               end as WAIT_LVL_EVENT
+          from ash_tab t
+         start with BLOCKING_SESSION is null
+        connect by prior SESSION_ID = BLOCKING_SESSION
+               and prior INSTANCE_NUMBER = BLOCKING_INST_ID 
+               and prior session_serial# = blocking_session_serial#
+               and sample_id = prior sample_id)
+ group by  SAMPLE_TIME,FINAL_INST,FINAL_SID, FINAL_SID_SERIAL#,FINAL_EVT,FINAL_PROGRAM,FINAL_SQL,instance_number,SQL_OPNAME
+having count(*) > 1 
+ order by SAMPLE_TIME,count(*) desc;
+
+oracle ssc提供的脚本1
+挖掘dba_hist_active_session_history视图的信息
+with ash_tab as 
+(
+select *
+          from dba_hist_active_sess_history
+         where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+)
+select t.lv,
+       t.iscycle,
+       t.sample_id,
+       t.sample_time,
+       t.inst_id,
+       t.session_id,
+       t.session_serial#,
+       t.inst_id,
+       t.sql_opname,
+       t.program,
+       t.session_type,
+       t.sql_id,
+       nvl(t.event,'ON CPU') event,
+       t.seq#,
+       t.session_state,
+       t.blocking_inst_id,
+       t.blocking_session,
+       t.blocking_session_status,
+       t.c blocking_session_count
+  from (select t.*,
+               count(*) over(partition by instance_number, sample_time, session_id, session_serial#) c, /*这个是有多少个会话被root blocker堵塞*/
+               row_number() over(partition by instance_number, sample_time, session_id, session_serial# order by 1) r1 /*计算排名,后面会取排名第一个会话*/
+          from (select /*+parallel(t,8) */
+                 level lv,
+                 connect_by_isleaf isleaf,
+                 connect_by_iscycle iscycle,
+                 t.*
+                  from ash_tab t
+                 where instance_number = 1
+                 start with blocking_session is not null
+                connect by nocycle
+                 prior sample_time = sample_time
+                       and prior blocking_inst_id = instance_number
+                       and prior blocking_session = session_id
+                       and prior blocking_session_serial# = session_serial#) t
+         where t.isleaf = 1) t /*这里的树形查询是先以leaf开始往root查询，因此leaf的connect_by_isleaf是0，root的connect_by_isleaf是1，此时将isleaf是1的查出来就是root blocker，每一个会话的root blocker都会在树形查询中被显示出来，然后再group by分组求count(*),求root blocker的信息和等待*/
+ where r1 = 1 
+ and c>=2 /*可以选择>=2略去某个单个session等待的会话，这些会话在每个sample——time阶段并没有数状关系，可能是因为ash没有抓取到，所以要将其略去*/
+ order by sample_time,c desc;
+
+oracle ssc提供的脚本2
+With ash As
+(
+SELECT /*+ materialize */
+    *
+FROM
+    gv$active_session_history where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+),
+chains As
+(
+SELECT
+    inst_id,
+    session_id,
+    level lvl,
+    sys_connect_by_path('inst '
+                        || inst_id
+                        || ' ' || sql_id
+                        || ' '
+                        || event, ' -> ') path,
+    CONNECT_BY_ISLEAF isleaf
+FROM
+    ash
+START WITH event = '&event_name'
+Connect By nocycle (
+PRIOR blocking_session = session_id 
+AND PRIOR blocking_session_serial# = session_serial#
+AND PRIOR blocking_inst_id = inst_id 
+AND PRIOR sample_id = sample_id /*And ((Prior sample_time) - sample_time Between Interval '-1' Second And Interval '1' Second)*/)
+)
+Select 
+inst_id,
+lpad(round(ratio_to_report(Count(*)) over() * 100) || '%', 5, ' ') "%This",
+Count(*) samples,
+path
+From chains
+Where isleaf = 1
+Group By inst_id, path
+Order By samples desc;
+
+With ash As
+(
+SELECT /*+ materialize */
+    *
+FROM
+   dba_hist_active_sess_history where sample_time between
+               to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+               to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+),
+chains As
+(
+SELECT
+    instance_number,
+    session_id,
+    level lvl,
+    sys_connect_by_path('inst '
+                        || instance_number
+                        || ' ' || sql_id
+                        || ' '
+                        || event, ' -> ') path,
+    CONNECT_BY_ISLEAF isleaf
+FROM
+    ash
+START WITH event = '&event_name'
+Connect By nocycle (
+PRIOR blocking_session = session_id 
+AND PRIOR blocking_session_serial# = session_serial#
+AND PRIOR blocking_inst_id = instance_number 
+AND PRIOR sample_id = sample_id /*And ((Prior sample_time) - sample_time Between Interval '-1' Second And Interval '1' Second)*/)
+)
+Select 
+instance_number,
+lpad(round(ratio_to_report(Count(*)) over() * 100) || '%', 5, ' ') "%This",
+Count(*) samples,
+path
+From chains
+Where isleaf = 1
+Group By instance_number, path
+Order By samples desc;
+	
+7、抓取ash中TEMP_SPACE_ALLOCATED消耗最多的SQL_ID
+select sample_time, sql_id, sum(TEMP_SPACE_ALLOCATED/ 1024 / 1024 / 1024) GB
+  from v$active_session_history a
+ where sample_time between
+        to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+        to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+       and a.TEMP_SPACE_ALLOCATED is not null
+ group by sample_time, sql_id
+ order by 3 desc;
+
+select sample_time, sql_id, sum(TEMP_SPACE_ALLOCATED/ 1024 / 1024 / 1024) GB
+  from dba_hist_active_sess_history a
+ where sample_time between
+        to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+        to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+       and a.TEMP_SPACE_ALLOCATED is not null
+       and instance_number in (select instance_number from v$instance)
+ group by sample_time, sql_id
+ order by 3 desc;
+
+8 抓取ash中的pga_allocated消耗的SQL_ID
+select a.sample_time,
+       a.sql_id,
+       sum(a.pga_allocated / 1024 / 1024 / 1024) GB1
+  from v$active_session_history a
+ where pga_allocated is not null
+       and sample_time between
+        to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+        to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+ group by a.sample_time, a.sql_id
+ order by 3 desc
+
+9 抓取ash中的DELTA_READ_IO_BYTES、DELTA_READ_IO_REQUESTS等信息
+
+10 ASH中剖析各种操作类型的次数，这里以SQL_OPNAME、SQL_OPCODE字段来区分
+select SQL_OPCODE,SQL_OPNAME,count(*) from v$active_session_history a
+where  sample_time between
+       to_date('&date1', 'yyyy-mm-dd hh24:mi:ss') and
+       to_date('&date2', 'yyyy-mm-dd hh24:mi:ss')
+       group by SQL_OPCODE,SQL_OPNAME;     
+
+SQL_OPCODE SQL_OPNAME                                                         COUNT(*)
+---------- ---------------------------------------------------------------- ----------
+         0                                                                      210336
+         1 CREATE TABLE                                                             59
+         2 INSERT                                                                61319
+         3 SELECT                                                               656570
+         6 UPDATE                                                                17984
+         7 DELETE                                                                12528
+         9 CREATE INDEX                                                              2
+        12 DROP TABLE                                                                1
+        15 ALTER TABLE                                                              46
+        25 ALTER PROCEDURE                                                           1
+        26 LOCK TABLE                                                                1
+        47 PL/SQL EXECUTE                                                          804
+        85 TRUNCATE TABLE                                                          296
+        90 SET CONSTRAINTS                                                           1
+       170 CALL METHOD                                                              56
+       189 UPSERT                                                                   34
+
+11、查看某些会话的ASH生命活动周期
+alter session set nls_date_format='yyyymmddhh24miss';
+set linesize 280
+set pagesize 1000
+col event for a30
+col program for a35
+col machine for a15
+col username for a10
+col holdersid for a30
+col sql_id for a15
+col SQL_OPNAME for a15
+col current_obj# for 99999999
+col param for a40
+col SQL_EXEC_ID for 9999999999
+col sample_time for a15
+with ash_tab as 
+(
+select *
+  from dba_hist_active_sess_history
+ where  sample_time between
+        to_date('&date1', 'yyyymmddhh24miss') and
+        to_date('&date2', 'yyyymmddhh24miss')
+        and instance_number in (select instance_number from v$instance)
+)
+select sql_id,machine,event,program,IN_HARD_PARSE,to_char(sample_time,'yyyymmddhh24miss') sample_time,current_obj#,blocking_inst_id||'_'||blocking_session||'_'||blocking_session_serial# holdersid,p1||'_'||p2||'_'||p3 param,SQL_EXEC_ID,SQL_OPNAME from ash_tab where session_id=&sid and session_serial#=&serial
+order by sample_time;
+
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+set linesize 280
+set pagesize 1000
+col event for a35
+col program for a35
+col machine for a20
+col username for a15
+col sid for a15
+col sql_id for a15
+col SQL_OPNAME for a15
+col current_obj# for 99999999
+col param for a40
+col SQL_EXEC_ID for 9999999999
+col sample_time for a15
+with ash_tab as 
+(
+select *
+  from dba_hist_active_sess_history
+ where  sample_time between
+        to_date('&date1', 'yyyymmddhh24miss') and
+        to_date('&date2', 'yyyymmddhh24miss')
+        and instance_number in (select instance_number from v$instance)
+)
+select session_id||'_'||session_serial# sid,sql_id,machine,event,program,IN_HARD_PARSE,to_char(sample_time,'yyyymmddhh24miss') sample_time,current_obj#,p1||'_'||p2||'_'||p3 param,SQL_EXEC_ID,SQL_OPNAME from ash_tab 
+where blocking_session=&sid and blocking_session_serial#=&serial and blocking_inst_id=&inst_id
+order by sample_time;
+
+
+
+

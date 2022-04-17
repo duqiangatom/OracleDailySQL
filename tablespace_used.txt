@@ -1,0 +1,35 @@
+#表空间使用率
+set linesize 220 pagesize 10000
+COL SIZE_G FOR A15
+COL FREE_G FOR A15
+COL USED_PCT FOR A10
+COL TABLESPACE_NAME FOR A30
+SELECT d.tablespace_name,
+           to_char(nvl(a.bytes / 1024 / 1024 / 1024, 0), '99,999,990.00') size_g,
+           to_char(nvl(f.bytes, 0) / 1024 / 1024 / 1024, '99,999,990.00') free_g,
+           to_char(nvl((a.bytes - nvl(f.bytes, 0)) / a.bytes * 100, 0), '990.00') || '%' used_pct
+    FROM   dba_tablespaces d,
+           (SELECT tablespace_name, SUM(bytes) bytes
+            FROM   dba_data_files
+            GROUP  BY tablespace_name) a,
+           (SELECT tablespace_name, SUM(bytes) bytes
+           FROM   dba_free_space
+           GROUP  BY tablespace_name) f
+   WHERE  d.tablespace_name = a.tablespace_name(+)
+          AND d.tablespace_name = f.tablespace_name(+)
+          AND NOT (d.extent_management = 'LOCAL' AND d.contents = 'TEMPORARY')
+   ORDER  BY 4 DESC;
+
+#查询temp表空间使用率：
+select  df.tablespace_name "Tablespace",
+       df.totalspace "Total(MB)",
+       nvl(FS.UsedSpace, 0)  "Used(MB)",
+       (df.totalspace - nvl(FS.UsedSpace, 0)) "Free(MB)",
+       round(100 * (1-( nvl(fs.UsedSpace, 0) / df.totalspace)), 2) "Pct. Free(%)"
+FROM  (SELECT tablespace_name, round(SUM(bytes) / 1048576) TotalSpace
+        FROM   dba_TEMP_files
+        GROUP  BY tablespace_name) df,
+       (SELECT tablespace_name, ROUND(SUM(bytes_used) / 1024 / 1024)  UsedSpace
+        FROM   gV$temp_extent_pool
+        GROUP  BY tablespace_name) fs  WHERE  df.tablespace_name = fs.tablespace_name(+);
+

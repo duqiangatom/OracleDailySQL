@@ -1,0 +1,27 @@
+set linesize 220 pagesize 10000
+set long 999999999
+col MODULE for a40
+col sql_id for a30
+col PARSING_SCHEMA_NAME for a20
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss'
+select a.sql_id,
+       a.MODULE,
+       a.PARSING_SCHEMA_NAME,
+       a.last_active_time,
+       a.last_load_time,
+       a.sql_fulltext,
+       b.pool_mb,
+       b.cnt
+  from v$sqlarea a,
+       (select max(sql_id) sql_id,
+               FORCE_MATCHING_SIGNATURE,
+               round(sum(SHARABLE_MEM / 1024 / 1024)) pool_mb,
+               count(1) cnt
+          from v$sqlarea
+         where FORCE_MATCHING_SIGNATURE > 0
+           and FORCE_MATCHING_SIGNATURE != EXACT_MATCHING_SIGNATURE
+         group by FORCE_MATCHING_SIGNATURE
+        having count(1) > 3
+         order by count(1) desc) b
+ where a.sql_id = b.sql_id
+ order by cnt desc;

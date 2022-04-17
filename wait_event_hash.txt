@@ -1,0 +1,12 @@
+set linesize 220
+set pagesize 1000
+select a.event, c.plan_hash_value,max(round(decode(c.executions,0,c.buffer_gets,c.buffer_gets/c.executions))) exec_gets,count(*)
+  from gv$session a,gv$sql c
+ where a.status='ACTIVE'
+ and not (a.type = 'BACKGROUND' and a.state='WAITING' and  a.wait_class='Idle')
+ and a.sql_id=c.sql_id(+)
+ and a.sql_child_number=c.CHILD_NUMBER(+)
+ and a.inst_id=c.inst_id
+ group by a.inst_id,a.event, c.plan_hash_value
+ order by a.inst_id,count(*) desc, c.plan_hash_value
+;

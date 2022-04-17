@@ -1,0 +1,115 @@
+set linesize 220 pagesize 10000
+col begin_interval_time for a30
+col end_interval_time for a30
+col waitem for a40
+SELECT
+    *
+FROM
+    (
+        SELECT
+            instance_number,
+            TO_CHAR(snap_time, 'yyyy-mm-dd hh24:Mi:ss') begin_interval_time,
+            snap_id,
+            waitem,
+            delta_wait_count,
+            SUM(delta_wait_count) OVER(
+                PARTITION BY snap_id, instance_number
+                ORDER BY
+                    snap_id
+            ) total_detail,
+            100
+                    * round(delta_wait_count /(SUM(
+                               Delta_wait_count) OVER(
+                PARTITION BY snap_id, instance_number
+                ORDER BY snap_id
+            )),
+                         5)
+            || '%' pct
+        FROM
+            (
+                SELECT
+                    em.instance_number
+                    || '-'
+                    || em.event_name
+                    || '- <'
+                    || em.wait_time_milli
+                    || ' ms' waitem,
+                    em.wait_time_milli,
+                           CAST(MIN(sn.begin_interval_time) OVER(
+                        PARTITION BY sn.dbid, sn.snap_id
+                    ) AS DATE) snap_time,
+                    em.snap_id,
+                    em.instance_number,
+                    wait_count,
+                    em.wait_count - LAG(em.wait_count) OVER(
+                        PARTITION BY em.dbid, em.instance_number, em.event_id, em.wait_time_milli
+                        ORDER BY
+                            em.snap_id
+                    ) AS delta_wait_count
+                FROM
+                    dba_hist_event_histogram   em,
+                    dba_hist_snapshot          sn
+                WHERE
+                    event_name = 'log file parallel write'
+                    AND em.snap_id = sn.snap_id
+                    AND em.dbid = sn.dbid
+                    AND em.instance_number = sn.instance_number
+                    and em.instance_number in (select instance_number from v$instance)
+                    AND sn.begin_interval_time >= SYSDATE - 2
+                ORDER BY
+                    snap_id,
+                    event_name,
+                    wait_time_milli
+            )
+        ORDER BY
+            snap_id DESC,
+            wait_time_milli
+    )
+WHERE
+    waitem = instance_number||'-log file parallel write- <1 ms';
+
+INSTANCE_NUMBER TO_CHAR(SNAP_TIME,'    SNAP_ID WAITEM                                   DELTA_WAIT_COUNT TOTAL_DETAIL PCT
+--------------- ------------------- ---------- ---------------------------------------- ---------------- ------------ -----------------------------------------
+              1 2020-02-26 12:00:52     126964 1-log file parallel write- <1 ms                   662955       745559 88.921%
+              1 2020-02-26 11:45:44     126963 1-log file parallel write- <1 ms                   693125       777676 89.128%
+              1 2020-02-26 11:30:36     126962 1-log file parallel write- <1 ms                   595099       720196 82.63%
+              1 2020-02-26 11:15:27     126961 1-log file parallel write- <1 ms                   534153       715995 74.603%
+              1 2020-02-26 11:01:07     126960 1-log file parallel write- <1 ms                   315288       490881 64.229%
+              1 2020-02-26 10:45:06     126959 1-log file parallel write- <1 ms                   384842       523554 73.506%
+              1 2020-02-26 10:30:59     126958 1-log file parallel write- <1 ms                   447928       612781 73.098%
+              1 2020-02-26 10:15:51     126957 1-log file parallel write- <1 ms                   518629       697875 74.315%
+              1 2020-02-26 10:00:43     126956 1-log file parallel write- <1 ms                   549177       710043 77.344%
+              1 2020-02-26 09:45:35     126955 1-log file parallel write- <1 ms                   729360       825429 88.361%
+              1 2020-02-26 09:30:27     126954 1-log file parallel write- <1 ms                   782932       842819 92.894%
+
+
+关于等待事件的直方图对应的可选毫秒ms数值
+sys@CRMDB1> select wait_time_milli,count(*) from dba_hist_event_histogram group by wait_time_milli order by 1;
+
+WAIT_TIME_MILLI   COUNT(*)
+--------------- ----------
+              1     872447
+              2     673474
+              4     674979
+              8     685844
+             16     710809
+             32     678220
+             64     637716
+            128     611909
+            256     559185
+            512     520966
+           1024     497328
+           2048     413801
+           4096     327361
+           8192     272149
+          16384     286015
+          32768     183662
+          65536      90458
+         131072      71706
+         262144      56663
+         524288      56240
+        1048576      30932
+        2097152      21514
+        4194304      18702
+
+23 rows selected.

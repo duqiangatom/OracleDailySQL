@@ -1,0 +1,9 @@
+set linesize 220
+set pagesize 1000
+select inst_id,event,count(*)
+  from gv$session a
+ where a.status='ACTIVE'
+ and not (a.type = 'BACKGROUND' and a.state='WAITING' and  a.wait_class='Idle')
+ group by inst_id,event
+ order by a.inst_id,count(*) desc
+;

@@ -1,0 +1,7 @@
+col owner for a15
+col segment_name for a29
+col partition_name for a30
+col tablespace_name for a29
+col size_m for 999,999,999
+col blocks for 999,999,999
+select owner,segment_name, partition_name,tablespace_name,bytes/1024/1024 size_m,blocks from dba_segments where segment_name=UPPER('&segment_name') order by 1;

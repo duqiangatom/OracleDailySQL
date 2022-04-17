@@ -1,0 +1,106 @@
+set linesize 260 pagesize 10000
+col module for a45
+col  BEGIN_INTERVAL_TIME format a25
+col instance_number format 9
+
+select *
+  from (select to_char(begin_interval_time,'yyyy-mm-dd hh24:mi:ss') begin_time, 
+               a.instance_number,
+               module,
+               plan_hash_value,
+               EXECUTIONS_DELTA exec,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      buffer_gets_deltA,
+                      round(BUFFER_GETS_DELTA / EXECUTIONS_DELTA)) per_get,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      ROWS_PROCESSED_DELTA,
+                      round(ROWS_PROCESSED_DELTA / EXECUTIONS_DELTA, 3)) per_rows,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      ELAPSED_TIME_DELTA,
+                      round(ELAPSED_TIME_DELTA / EXECUTIONS_DELTA / 1000,
+                            2)) time_ms,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      DISK_READS_DELTA,
+                      round(DISK_READS_DELTA / EXECUTIONS_DELTA, 2)) per_read,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      LOADS_DELTA,
+                      round(LOADS_DELTA / EXECUTIONS_DELTA, 2)) per_loads
+          from dba_hist_sqlstat a, DBA_HIST_SNAPSHOT b
+         where a.snap_id = b.snap_id
+           and a.instance_number = b.instance_number
+           and a.sql_id = '&sql_id'
+         order by 1 desc)
+ where rownum < 100;
+
+
+col inst for 9
+set linesize 240
+set pagesize 10000
+col plan_value for 9999999999
+col module for a35
+col get_per for 99999999
+col read_per for 99999999
+col rows_per for 99999999
+col elas_per for 9999999999
+col cpu_per for 99999999
+col IO_per for 99999999
+col clu_per for 99999999
+col app_per for 99999999
+col concur_per for 99999999
+select *
+  from (select to_char(begin_interval_time, 'yyyy-mm-dd hh24:mi:ss') begin_time,
+               a.instance_number inst,
+               a.module,
+               plan_hash_value plan_value,
+               EXECUTIONS_DELTA exec,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      buffer_gets_deltA, 
+                      round(BUFFER_GETS_DELTA / EXECUTIONS_DELTA)) get_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      DISK_READS_DELTA,
+                      round(DISK_READS_DELTA / EXECUTIONS_DELTA)) read_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      ROWS_PROCESSED_DELTA,
+                      round(ROWS_PROCESSED_DELTA / EXECUTIONS_DELTA)) rows_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      ELAPSED_TIME_DELTA,
+                      round(ELAPSED_TIME_DELTA / EXECUTIONS_DELTA / 1000, 2)) elas_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      CPU_TIME_DELTA,
+                      round(CPU_TIME_DELTA / EXECUTIONS_DELTA / 1000, 2)) cpu_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      IOWAIT_DELTA,
+                      round(IOWAIT_DELTA / EXECUTIONS_DELTA / 1000, 2)) IO_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      CLWAIT_DELTA,
+                      round(CLWAIT_DELTA / EXECUTIONS_DELTA / 1000, 2)) clu_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      APWAIT_DELTA,
+                      round(APWAIT_DELTA / EXECUTIONS_DELTA / 1000, 2)) app_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      CCWAIT_DELTA,
+                      round(CCWAIT_DELTA / EXECUTIONS_DELTA / 1000, 2)) concur_per,
+               decode(EXECUTIONS_DELTA,
+                      0,
+                      LOADS_DELTA,
+                      round(LOADS_DELTA / EXECUTIONS_DELTA, 2)) per_loads
+          from dba_hist_sqlstat a, DBA_HIST_SNAPSHOT b
+         where a.snap_id = b.snap_id
+           and a.instance_number = b.instance_number
+           and a.sql_id = '&sql_id'
+         order by 1 desc)
+where rownum<100;

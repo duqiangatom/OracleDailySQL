@@ -1,0 +1,9 @@
+set linesize 220 pagesize 1000
+col ksppinm for a40
+col ksppstvl for a40
+col ksppdesc for a100
+select a.ksppinm, a.ksppdesc,b.ksppstvl,a.inst_id
+  from sys.x$ksppi a, sys.x$ksppcv b
+ where upper(a.ksppinm) like upper('%&param%')
+   and a.indx = b.indx 
+   order by a.ksppinm;

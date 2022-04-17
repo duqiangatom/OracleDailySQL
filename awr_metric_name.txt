@@ -1,0 +1,20 @@
+set linesize 220 pagesize 1000
+select METRIC_NAME from V$SYSMETRIC_SUMMARY where lower(METRIC_NAME) like '%&metric_name%';
+
+set linesize 220 pagesize 1000
+col begin_interval_time for a30
+col end_interval_time for a30
+col METRIC_NAME for a45
+select a.SNAP_ID,
+       b.BEGIN_INTERVAL_TIME,
+       b.END_INTERVAL_TIME,
+       a.METRIC_NAME,
+       round(a.AVERAGE, 2) AVERAGE,
+       round(a.MAXVAL, 2) MAXVAL
+  from dba_hist_sysmetric_summary a, dba_hist_snapshot b
+ where a.SNAP_ID = b.SNAP_ID
+   and a.INSTANCE_NUMBER = b.INSTANCE_NUMBER
+   and a.INSTANCE_NUMBER in (select instance_number from v$instance)
+   and a.METRIC_NAME in ('&metric_name')
+   and b.BEGIN_INTERVAL_TIME>sysdate-&date
+ order by b.BEGIN_INTERVAL_TIME;

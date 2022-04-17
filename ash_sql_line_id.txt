@@ -1,0 +1,18 @@
+set linesize 260 pagesize 10000
+SELECT
+    SQL_PLAN_HASH_VALUE,
+    event,
+    sql_plan_line_id,
+    COUNT(*)
+FROM
+    dba_hist_active_sess_history
+WHERE
+    sql_id = '&SQL_ID'
+    AND sample_time between
+        to_date('&date1', 'yyyymmddhh24miss') and
+        to_date('&date2', 'yyyymmddhh24miss')
+GROUP BY
+    SQL_PLAN_HASH_VALUE,sql_plan_line_id,event
+ORDER BY
+    4 DESC;
+

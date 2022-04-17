@@ -1,0 +1,4 @@
+set linesize 260
+set long 999999
+set pagesize 1000
+select dbms_metadata.get_ddl(upper('&object_type'),upper('&object_name'),upper('&owner')) FROM DUAL;

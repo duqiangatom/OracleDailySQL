@@ -1,0 +1,28 @@
+实时的undo使用量
+set linesize 220
+set pagesize 1000
+col username for a20
+col module for a40
+col sql_id for a15
+col status for a10
+col machine for a20
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+select *
+  from (select start_time,
+               username, 
+               s.MACHINE, 
+               s.OSUSER, 
+               r.name, 
+               ubafil, --Undo block address (UBA) filenum  
+               ubablk, --UBA block number  
+               t.status,   
+               (used_ublk * 8192 / 1024) kbtye,   
+               used_urec,   
+               s1.SQL_ID,   
+               substr(s1.SQL_TEXT,0,20)
+          from v$transaction t, v$rollname r, v$session s, v$sqlarea s1
+         where t.xidusn = r.usn
+           and s.saddr = t.ses_addr
+           and s.sql_id = s1.sql_id(+)
+         order by 9 desc)
+ where rownum <= 10;

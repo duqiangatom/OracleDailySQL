@@ -1,0 +1,7 @@
+set linesize 220 pagesize 10000
+alter session set nls_date_format='yyyy-mm-dd hh24:mi:ss';
+col table_owner for a20
+col table_name for a30
+col partition_name for a20
+col subpartition_name for a20
+select a.*,sysdate from dba_tab_modifications a where table_name=upper('&table_name');

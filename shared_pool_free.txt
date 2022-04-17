@@ -1,0 +1,5 @@
+set linesize 260 pagesize 1000
+select pool, name, bytes / 1024 / 1024 / 1024 GB
+      from v$sgastat
+     where name like 'free memory'
+    ;

@@ -1,0 +1,9 @@
+set linesize 220
+set pagesize 1000
+select inst_id,event,sql_id,BLOCKING_INSTANCE,blocking_session,FINAL_BLOCKING_INSTANCE,FINAL_BLOCKING_SESSION, count(*)
+  from gv$session a
+ where a.status='ACTIVE'
+ and not (a.type = 'BACKGROUND' and a.state='WAITING' and  a.wait_class='Idle') and upper(event) like upper('%&event%')
+ group by inst_id,event,sql_id,BLOCKING_INSTANCE,blocking_session,FINAL_BLOCKING_INSTANCE,FINAL_BLOCKING_SESSION
+ order by inst_id ,count(*) desc, sql_id
+;
