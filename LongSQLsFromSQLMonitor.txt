@@ -1,0 +1,67 @@
+
+---To Find Current EXECUTING SQLs:
+
+set lines 1000 pages 9999
+column sid format 9999
+column serial for 999999
+column status format a15
+column username format a10
+column sql_text format a80
+column module format a30
+col program for a30
+col SQL_EXEC_START for a20
+SELECT * FROM (SELECT status,inst_id,sid,SESSION_SERIAL# as Serial,username,sql_id,SQL_PLAN_HASH_VALUE, MODULE,program,
+TO_CHAR(sql_exec_start,'dd-mon-yyyy hh24:mi:ss') AS sql_exec_start,
+ROUND(elapsed_time/1000000) AS "Elapsed (s)", ROUND(cpu_time /1000000) AS "CPU (s)",
+substr(sql_text,1,30) sql_text FROM gv$sql_monitor where 
+module not like '%emagent%' 
+-- and status='EXECUTING' 
+ORDER BY sql_exec_start desc );
+
+
+---Generate SQL Mintor Report for SQL ID(SQL PLAN+ Resource used details):
+
+SET LONG 1000000
+SET LONGCHUNKSIZE 1000000
+SET LINESIZE 1000
+SET PAGESIZE 0
+SET TRIM ON
+SET TRIMSPOOL ON
+SET ECHO OFF
+SET FEEDBACK OFF
+
+SPOOL report_sql_monitor.html
+SELECT DBMS_SQLTUNE.report_sql_monitor(
+  sql_id       => 'c0ym21ns5twt0',
+  type         => 'ACTIVE',
+  report_level => 'ALL') AS report
+FROM dual;
+SPOOL OFF
+
+
+
+---TOP 20 latest long SQLs(including EXECUTING + Done)
+
+set lines 1000 pages 9999
+column sid format 9999
+column serial for 999999
+column status format a15
+column username format a10
+column sql_text format a80
+column module format a30
+col program for a30
+col SQL_EXEC_START for a20
+SELECT * FROM (SELECT status,inst_id,sid,SESSION_SERIAL# as Serial,username,sql_id,SQL_PLAN_HASH_VALUE, MODULE,program,
+TO_CHAR(sql_exec_start,'dd-mon-yyyy hh24:mi:ss') AS sql_exec_start,
+ROUND(elapsed_time/1000000) AS "Elapsed (s)", ROUND(cpu_time /1000000) AS "CPU (s)",
+substr(sql_text,1,30) sql_text FROM gv$sql_monitor where module not like '%emagent%'
+ORDER BY sql_exec_start desc ) WHERE rownum<=20;
+
+
+---Historical SQL Monitor reports:
+select report_id from (SELECT report_id,EXTRACTVALUE(XMLType(report_summary),'/report_repository_summary/sql/@sql_id') sql_id,EXTRACTVALUE(XMLType(report_summary),'/report_repository_summary/sql/@sql_exec_id') sql_exec_id, EXTRACTVALUE(XMLType(report_summary),'/report_repository_summary/sql/@sql_exec_start') sql_exec_start  FROM dba_hist_reports WHERE component_name = 'sqlmonitor') t where t.sql_id='c0ym21ns5twt0';
+
+---To get text from above Report id :
+
+set long 10000000 longchunksize 10000000 pages 0
+SELECT DBMS_AUTO_REPORT.REPORT_REPOSITORY_DETAIL(RID => 1288, TYPE => 'text') FROM dual;
