@@ -12,9 +12,7 @@ col SQL_EXEC_START for a20
 SELECT * FROM (SELECT status,inst_id,sid,SESSION_SERIAL# as Serial,username,sql_id,SQL_PLAN_HASH_VALUE, MODULE,program,
 TO_CHAR(sql_exec_start,'dd-mon-yyyy hh24:mi:ss') AS sql_exec_start,
 ROUND(elapsed_time/1000000) AS "Elapsed (s)", ROUND(cpu_time /1000000) AS "CPU (s)",
-substr(sql_text,1,30) sql_text FROM gv$sql_monitor where status='EXECUTING' and module not like '%emagent%' ORDER BY sql_exec_start desc 
-
-);
+substr(sql_text,1,30) sql_text FROM gv$sql_monitor where status='EXECUTING' and module not like '%emagent%' ORDER BY sql_exec_start desc);
 
 
 ---Generate details for SQL ID(SQL PLAN+ Resource used details):
