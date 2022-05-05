@@ -1,0 +1,79 @@
+
+$ORACLE_DIAG/trace/nss2.trc or RFS.log
+Primary Client send - P1S    ---> Standby RFS server recived - S2R
+                                       |
+                                       v
+Primary Client recived - P4R <-- standby RFS server finished - S3F
+
+Log file sync = P4R - P1S
+Network =  Log file sync - (S3F - S3R)
+
+Example1(msgid=5132):  log file sync= 1880us ; network = 1880 - 1309 = 571us
+
+P1S :  2022-05-05 18:54:01.520293 8398 krsu.c
+P4R :  2022-05-05 18:54:01.522173 8557 krsu.c
+S2R :  2022-05-05 18:54:01.509535 1202 krsr.c
+WAIT #0: nam='Standby redo I/O' ela= 1157 count=1 intr=0 timeout=2147483647 obj#=-1 tim=5031832007
+WAIT #0: nam='RFS random i/o' ela= 2 p1=4294967295 p2=0 p3=2147483647 obj#=-1 tim=5031832057
+WAIT #0: nam='RFS write' ela= 122 p1=0 p2=0 p3=0 obj#=-1 tim=5031832069
+S3F :  2022-05-05 18:54:01.510844 1949 krsr.c
+
+
+Example2(msgid=5122):  log file sync= 6796us ; network = 6796 - 5637 = 1159us
+
+P*** 2022-05-05 18:53:55.716227 8398 krsu.c
+P*** 2022-05-05 18:53:55.723023 8557 krsu.c
+S*** 2022-05-05 18:53:55.684652 1202 krsr.c
+WAIT #0: nam='Standby redo I/O' ela= 5374 count=1 intr=0 timeout=2147483647 obj#=-1 tim=5026011342
+WAIT #0: nam='RFS random i/o' ela= 2 p1=4294967295 p2=0 p3=2147483647 obj#=-1 tim=5026011404
+WAIT #0: nam='RFS write' ela= 221 p1=0 p2=0 p3=0 obj#=-1 tim=5026011507
+... Server finished processing SQLNET data [krsr_rfs_dsp] oper='Write' flag=133250 thrd=1 seq=14 msgid=5122
+S*** 2022-05-05 18:53:55.690289 1949 krsr.c
+
+
+
+---Primary:
+
+select open_mode, database_role, protection_mode, protection_level from v$database;
+select  a.sid,b.spid ,b.pname, b.TRACEFILE from  v$session a, v$process b where a.paddr = b.addr  and a.type='BACKGROUND' and pname like 'NSS%' or pname like 'RFS%';
+
+SQL> oradebug SETOSPID $NSSOSPID
+oradebug event 16410 trace name context forever,level 16;
+oradebug event 16410 trace name context off;
+
+
+--Standby side
+
+
+select open_mode, database_role, protection_mode, protection_level from v$database;
+
+
+SQL> select PID,process, status, SEQUENCE#  from v$managed_standby;
+
+PID                      PROCESS   STATUS        SEQUENCE#
+------------------------ --------- ------------ ----------
+2225                     ARCH      CLOSING              13
+2227                     ARCH      CONNECTED             0
+2229                     ARCH      CLOSING              12
+2277                     MRP0      APPLYING_LOG         14
+5175                     RFS       IDLE                  0
+4208                     RFS       IDLE                  0
+5172                     RFS       IDLE                 14
+
+7 rows selected.
+
+SQL> oradebug SETOSPID 5172
+Oracle pid: 39, Unix process pid: 5172, image: oracle@NVM02
+SQL>
+oradebug event 16410 trace name context forever,level 16;SQL>
+Statement processed.
+
+--optional
+SQL> oradebug event 10046 trace name context forever,level 12;
+Statement processed.
+
+SQL> oradebug event 16410 trace name context off;
+Statement processed.
+
+SQL> oradebug event 10046 trace name context off;
+Statement processed.
