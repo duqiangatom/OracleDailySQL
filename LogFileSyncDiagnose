@@ -5,10 +5,14 @@ Primary Client send - P1S    ---> Standby RFS server recived - S2R
                                        v
 Primary Client recived - P4R <-- standby RFS server finished - S3F
 
-Log file sync = P4R - P1S
+NSS:Redo Remote MISC = P4R - P1S
 Network =  Log file sync - (S3F - S3R)
 
-Example1(msgid=5132):  log file sync= 1880us ; network = 1880 - 1309 = 571us
+12c New feature: FastSync
+Test Case1:   log_archive_dest_1: sync affirm  --Overhead= Network + IO
+Test Case2:   sync noaffirm --fastSync Overhead= Network
+
+Example1(msgid=5132): NSS:Redo Remote MISC = 1880us ; network = 1880 - 1309 = 571us
 
 P1S :  2022-05-05 18:54:01.520293 8398 krsu.c
 P4R :  2022-05-05 18:54:01.522173 8557 krsu.c
@@ -19,7 +23,7 @@ WAIT #0: nam='RFS write' ela= 122 p1=0 p2=0 p3=0 obj#=-1 tim=5031832069
 S3F :  2022-05-05 18:54:01.510844 1949 krsr.c
 
 
-Example2(msgid=5122):  log file sync= 6796us ; network = 6796 - 5637 = 1159us
+Example2(msgid=5122):  NSS:Redo Remote MISC = 6796us ; network = 6796 - 5637 = 1159us
 
 P*** 2022-05-05 18:53:55.716227 8398 krsu.c
 P*** 2022-05-05 18:53:55.723023 8557 krsu.c
