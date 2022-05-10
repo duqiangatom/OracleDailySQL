@@ -1,0 +1,13 @@
+
+cd /opt/oracle_root/oracle.ahf/data/repository/suptools/nvm01/oswbb/oracle/archive 
+find . -name *.gz -exec gunzip {} \;  --gzip/gunzip will zip/unzip file into same directory
+
+
+/opt/oracle_root/oracle.ahf/jre/bin/java -jar /opt/oracle_root/oracle.ahf/data/repository/suptools/nvm01/oswbb/oracle/oswbb/oswbba.jar -i /opt/oracle_root/oracle.ahf/data/repository/suptools/nvm01/oswbb/oracle/archive
+
+--Z to zoom scope and D to generate html report 
+
+
+/opt/oracle_root/oracle.ahf/jre/bin/java -jar /opt/oracle_root/oracle.ahf/data/repository/suptools/nvm01/oswbb/oracle/oswbb/oswbba.jar -i /opt/oracle_root/oracle.ahf/data/repository/suptools/nvm01/oswbb/oracle/archive -P myprofile1 -D
+
+--directly generate report
