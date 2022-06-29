@@ -132,6 +132,13 @@ To monitor the status open another session and verify  as sysdba run the query  
 
 select to_char(START_TIME,'yyyymmdd hh24:mi:dd')  as START_TIME ,to_char(LAST_UPDATE_TIME,'yyyymmdd hh24:mi:dd')  as LAST_UPDATE_TIME,sid,serial#,round((sofar/totalwork)*100,2) ||'%' pct,opname, target,round(time_remaining/60, 2)minutes from v$session_longops where round((sofar/totalwork)*100,2) != '100' and totalwork > 0 and sofar > 0;
 
+//simple check blocking session
+SQL> select sid,blocking_session,seconds_in_wait,blocking_session_status from  gv$session where blocking_session  is not null;
+
+       SID BLOCKING_SESSION SECONDS_IN_WAIT BLOCKING_SE
+---------- ---------------- --------------- -----------
+        46               60              80 VALID
+
 
 --1.1.1 锁等待信息（以上查询结果是一个树状结构，如果有子节点，则表示有等待发生)  
 
