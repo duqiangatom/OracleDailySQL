@@ -156,7 +156,7 @@ col "IO" for 999999
 
 select * from (
 select
-     ash.SQL_ID , ash.SQL_PLAN_HASH_VALUE Plan_hash, aud.name type,
+     ash.SQL_ID , ash.SQL_PLAN_HASH_VALUE Plan_hash, sql_exec_start, aud.name type,
      sum(decode(ash.session_state,'ON CPU',1,0))     "CPU",
      sum(decode(ash.session_state,'WAITING',1,0))    -
      sum(decode(ash.session_state,'WAITING', decode(wait_class, 'User I/O',1,0),0))    "WAIT_Other" ,
@@ -168,7 +168,7 @@ where SQL_ID = '&SQL_ID'
    -- and ash.dbid=DBID
    and ash.sql_opcode=aud.action
    -- and ash.sample_time > sysdate - &minutes /( 60*24)
-group by sql_id, SQL_PLAN_HASH_VALUE   , aud.name
+group by sql_id, SQL_PLAN_HASH_VALUE,sql_exec_start , aud.name
 order by sum(decode(session_state,'ON CPU',1,1))   desc
 ) where  rownum < 10
 /
