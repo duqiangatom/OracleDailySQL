@@ -34,7 +34,7 @@ select a.sid,
        a.machine,
        a.module,
        a.event,
-       a.sql_id,
+       a.sql_id,c.plan_hash_value,
        round(decode(c.executions,0,buffer_gets,buffer_gets/executions)) exec_gets,
        a.ROW_WAIT_OBJ# object_id,
        a.BLOCKING_INSTANCE||'_'||a.blocking_session  holder,
@@ -227,3 +227,10 @@ SELECT dbms_auto_report.Report_repository_detail(rid=> &report_id, TYPE=> 'activ
 FROM dual;
  
 spool OFF
+
+
+---enable trace
+SQL>oradebug setospid xxx
+SQL>ORADEBUG EVENT 10046 TRACE name context forever , level 12
+SQL> ORADEBUG EVENT 10046 TRACE name context OFF
+tkprof tracefile.trc my.txt sys=no waits=yes
